@@ -1,0 +1,5 @@
+dist/
+*.tar.xz
+
+!build/
+!build/**
