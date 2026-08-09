@@ -56,13 +56,10 @@ back_up_stock_binary() {
 }
 
 promote_candidate() {
-  owner=$(stat -c '%U:%G' "$TARGET_BIN" 2>/dev/null || printf 'DownloadStation:DownloadStation\n')
-  mode=$(stat -c '%a' "$TARGET_BIN" 2>/dev/null || printf '755\n')
-
-  chown "$owner" "$CANDIDATE_BIN" 2>/dev/null || true
-  chmod "$mode" "$CANDIDATE_BIN"
+  chown "$DAEMON_OWNER" "$CANDIDATE_BIN" 2>/dev/null || true
+  chmod "$DAEMON_MODE" "$CANDIDATE_BIN"
   mv -f "$CANDIDATE_BIN" "$TARGET_BIN"
-  log "installed replacement into ${TARGET_BIN}"
+  log "installed replacement into ${TARGET_BIN} (mode ${DAEMON_MODE})"
 }
 
 record_state() {

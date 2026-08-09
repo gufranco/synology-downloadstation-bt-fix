@@ -7,8 +7,8 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 restore_stock_binary() {
   [ -f "$STOCK_BACKUP" ] || die "no stock backup found at ${STOCK_BACKUP}; nothing to restore"
 
-  owner=$(stat -c '%U:%G' "$TARGET_BIN" 2>/dev/null || printf 'DownloadStation:DownloadStation\n')
-  mode=$(stat -c '%a' "$TARGET_BIN" 2>/dev/null || printf '755\n')
+  owner="$DAEMON_OWNER"
+  mode="$STOCK_MODE"
 
   cp -f "$STOCK_BACKUP" "${TARGET_BIN}.restore"
   chown "$owner" "${TARGET_BIN}.restore" 2>/dev/null || true

@@ -1,8 +1,10 @@
 # synology-downloadstation-bt-fix
 
-Restores BitTorrent downloads in Synology DownloadStation by replacing the bundled `transmissiond` with a build whose Unix-socket RPC handler actually answers requests.
+Restores BitTorrent downloads in Synology DownloadStation by replacing the bundled `transmissiond` with a newer Transmission that answers RPC, runs with the right socket group, and honors the private `task-id` argument DownloadStation depends on.
 
 HTTP and FTP downloads are unaffected by the bug and keep working either way. Only BitTorrent is broken, and it is broken completely: no torrent can ever be added.
+
+Three separate defects have to be fixed together. Each one alone still leaves BitTorrent dead, which is likely why this has gone unfixed for so long.
 
 ## Symptoms
 
@@ -70,6 +72,25 @@ Two facts, both verifiable against the upstream git history:
 
 Transmission gained Unix-socket RPC in the 4.0 series. Anything older cannot bind `unix:/tmp/synodl_transmission.sock` at all, so it cannot serve DownloadStation regardless of the bug. And every 4.0.x release carries the guard. There is no older build to fall back to; the only direction that works is forward.
 
+### The second defect: socket group ownership
+
+Upstream Transmission only `chmod`s the RPC socket; it never sets the group. Synology's build ends up with `root:DownloadStation`, but a stock upstream build produces `root:root`. Combined with the configured `rpc-socket-mode` of `0770`, that makes the socket unopenable by the `DownloadStation` user that `synodlscheduler` runs as, which fails instantly with `status_code=0` and an empty error string.
+
+Setting the setgid bit on the installed binary gives the daemon an effective group of `DownloadStation`, so the socket it creates inherits that group and matches stock exactly. The installer does this.
+
+### The third defect: DownloadStation's private `task-id` extension
+
+This one is why a stock upstream binary alone is not enough. A wire capture of the real exchange shows what DownloadStation actually does:
+
+```json
+{"method":"torrent-add","arguments":{"filename":"/volume1/@download/293/293.torrent","download-dir":"...","paused":false,"task-id":293}}
+{"method":"torrent-get","arguments":{"ids":[293],"fields":["id","status","sizeWhenDone","name","isFinished"]}}
+```
+
+DownloadStation passes its own task number into `torrent-add` as a non-standard `task-id` argument, and then looks the torrent up **by that number**. Synology patched Transmission so the torrent's internal id becomes the supplied `task-id`. Stock Transmission ignores the unknown argument and assigns a sequential id, so the follow-up query asks for id 293, gets `{"torrents":[]}`, and DownloadStation reports `Failed to get torrent info`.
+
+[patches/0001-honor-downloadstation-task-id.patch](patches/0001-honor-downloadstation-task-id.patch) restores that behaviour in 45 lines. `tr_torrents::add()` already stores torrents in a lookup table that tolerates gaps, so honoring an arbitrary id only requires growing the table and placing the torrent at the requested index, falling back to the sequential id when the slot is taken or no id was supplied.
+
 ### Why the newer daemon still talks to DownloadStation
 
 Transmission 4.1 introduced a JSON-RPC 2.0 API, which raises the obvious question of whether an older client still works. It does. The release ships `libtransmission/api-compat.cc`, a compatibility layer mapping 212 legacy mixed-case RPC keys onto the current snake-case names. Older clients are a supported case upstream, not an accident, which is why DownloadStation needs no modification of its own.
@@ -84,7 +105,8 @@ The RPC client lives in `libsynodl-transmission-rpc.so` and `libsynodldomainsock
 |---|---|
 | Verified on | DS923+ (platform `r1000`), DSM 7.3.2-86009 Update 4, DownloadStation 4.1.2-5012 |
 | Bundled daemon | transmission-daemon 4.0.5 (82ea3bbe46) |
-| Replacement | transmission-daemon 4.1.1 |
+| Replacement | transmission-daemon 4.1.1 plus the `task-id` patch |
+| Result | Ubuntu 24.04.4 ISO at 7.5 MB/s, 200 peers, correct size and progress in the UI |
 | Architectures | `x86_64`, `aarch64` |
 | DSM runtime | glibc 2.36, libstdc++ 6.0.31, libcurl.so.4, libssl.so.3, libevent-2.1.so.6 |
 
@@ -101,6 +123,8 @@ Distribution sonames do not line up with DSM, so the build links Transmission's 
 
 Note that `/tmp` is mounted `noexec` on DSM, so a binary staged there cannot be executed. The installer stages into the package directory instead and validates it there, which sidesteps the problem; keep it in mind if you test a binary by hand.
 
+[REFERENCE.md](REFERENCE.md) carries the full inventory: exact versions, every path touched, expected ownership and modes, SHA-256 checksums, and the DSM utilities the scripts depend on.
+
 Other models are likely affected by the same bug, but only the hardware listed above has been tested. Check your own daemon before assuming:
 
 ```sh
@@ -112,7 +136,7 @@ Other models are likely affected by the same bug, but only the hardware listed a
 Download the artifact for your architecture from the releases page, or build it yourself with [build/build.sh](build/build.sh).
 
 ```sh
-sudo ./scripts/install.sh ./dist/transmissiond-4.1.1-x86_64
+sudo ./scripts/install.sh ./dist/transmissiond-4.1.1-taskid-x86_64
 ```
 
 The installer stops DownloadStation, backs up the stock binary to `transmissiond.stock`, installs the replacement with the original owner and mode, restarts the package, and then proves the fix by sending a real RPC request over the domain socket. It refuses to install anything that is not an ELF binary identifying itself as `transmission-daemon`.

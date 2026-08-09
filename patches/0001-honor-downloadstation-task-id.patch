@@ -1,0 +1,89 @@
+diff --git a/libtransmission/rpcimpl.cc b/libtransmission/rpcimpl.cc
+index 0683777..0c32084 100644
+--- a/libtransmission/rpcimpl.cc
++++ b/libtransmission/rpcimpl.cc
+@@ -39,6 +39,7 @@
+ #include "libtransmission/session.h"
+ #include "libtransmission/torrent-ctor.h"
+ #include "libtransmission/torrent.h"
++#include "libtransmission/torrents.h"
+ #include "libtransmission/tr-assert.h"
+ #include "libtransmission/tr-strbuf.h"
+ #include "libtransmission/utils.h"
+@@ -1755,6 +1756,11 @@ void torrentAdd(tr_session* session, tr_variant::Map const& args_in, tr_rpc_idle
+         return;
+     }
+ 
++    if (auto const task_id = args_in.value_if<int64_t>(tr_quark_new("task-id"sv)); task_id && *task_id > 0)
++    {
++        tr_torrents_set_pending_id(static_cast<tr_torrent_id_t>(*task_id));
++    }
++
+     auto ctor = tr_ctor{ session };
+ 
+     // set the optional parameters
+diff --git a/libtransmission/torrents.cc b/libtransmission/torrents.cc
+index d27e5bc..766bbb8 100644
+--- a/libtransmission/torrents.cc
++++ b/libtransmission/torrents.cc
+@@ -69,10 +69,45 @@ tr_torrent* tr_torrents::find_from_obfuscated_hash(tr_sha1_digest_t const& obfus
+     return nullptr;
+ }
+ 
++namespace
++{
++thread_local tr_torrent_id_t pending_torrent_id = {};
++}
++
++void tr_torrents_set_pending_id(tr_torrent_id_t id)
++{
++    pending_torrent_id = id;
++}
++
+ tr_torrent_id_t tr_torrents::add(tr_torrent* tor)
+ {
+-    auto const id = static_cast<tr_torrent_id_t>(std::size(by_id_));
+-    by_id_.push_back(tor);
++    auto const requested_id = pending_torrent_id;
++    pending_torrent_id = tr_torrent_id_t{};
++
++    auto id = tr_torrent_id_t{};
++
++    if (requested_id > tr_torrent_id_t{})
++    {
++        auto const uid = static_cast<size_t>(requested_id);
++
++        if (uid >= std::size(by_id_))
++        {
++            by_id_.resize(uid + 1U, nullptr);
++        }
++
++        if (by_id_[uid] == nullptr)
++        {
++            by_id_[uid] = tor;
++            id = requested_id;
++        }
++    }
++
++    if (id == tr_torrent_id_t{})
++    {
++        id = static_cast<tr_torrent_id_t>(std::size(by_id_));
++        by_id_.push_back(tor);
++    }
++
+     by_hash_.insert(std::lower_bound(std::begin(by_hash_), std::end(by_hash_), tor, CompareTorrentByHash), tor);
+     return id;
+ }
+diff --git a/libtransmission/torrents.h b/libtransmission/torrents.h
+index f800366..329ef4e 100644
+--- a/libtransmission/torrents.h
++++ b/libtransmission/torrents.h
+@@ -25,6 +25,8 @@
+ 
+ struct tr_torrent;
+ 
++void tr_torrents_set_pending_id(tr_torrent_id_t id);
++
+ // A helper class to manage tracking sets of tr_torrent objects.
+ class tr_torrents
+ {

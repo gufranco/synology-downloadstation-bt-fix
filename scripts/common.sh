@@ -13,6 +13,9 @@ INSTALLED_MARKER="${STATE_DIR}/installed.conf"
 PATCHED_COPY="${STATE_DIR}/transmissiond.patched"
 RPC_SOCKET=/tmp/synodl_transmission.sock
 DAEMON_STOP_TIMEOUT_SECONDS=15
+DAEMON_OWNER=DownloadStation:DownloadStation
+DAEMON_MODE=2755
+STOCK_MODE=755
 
 log()  { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }

@@ -14,8 +14,8 @@ patch_is_active() {
 reinstall_patched_binary() {
   [ -f "$PATCHED_COPY" ] || die "no stored patched binary at ${PATCHED_COPY}; re-run install.sh"
 
-  owner=$(stat -c '%U:%G' "$TARGET_BIN" 2>/dev/null || printf 'DownloadStation:DownloadStation\n')
-  mode=$(stat -c '%a' "$TARGET_BIN" 2>/dev/null || printf '755\n')
+  owner="$DAEMON_OWNER"
+  mode="$DAEMON_MODE"
 
   stop_downloadstation
 
