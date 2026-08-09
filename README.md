@@ -161,7 +161,7 @@ Add it as a scheduled task in DSM so it heals itself:
 4. Open the **Task Settings** tab and put this in **User-defined script**, adjusting the path to where you cloned the repo:
 
 ```sh
-/volume1/Arquivos/dsfix/scripts/reapply.sh
+/volume1/<your-share>/synology-downloadstation-bt-fix/scripts/reapply.sh
 ```
 
 5. Click **OK** and confirm the warning about running scripts as root.
@@ -192,9 +192,9 @@ Building on a host of a different architecture requires `binfmt_misc` emulation.
 
 ## Licence
 
-Transmission is licensed under the GPL. This repository distributes an unmodified upstream Transmission release built from the official source tarball, so the corresponding source is the published upstream release named in [build/build-in-container.sh](build/build-in-container.sh), fetched at build time from the Transmission project's own release page.
+The scripts, patches and documentation here are MIT licensed; see [LICENSE](LICENSE).
 
-The scripts in this repository are provided under the MIT licence. Nothing here is affiliated with or endorsed by Synology or the Transmission project.
+The distributed `transmission-daemon` binary is a modified Transmission and remains under the GPL. The corresponding source, the patch, and the exact build recipe are all published in this repository, as the GPL requires. Details and the full component inventory are in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 
 ## Disclaimer
 

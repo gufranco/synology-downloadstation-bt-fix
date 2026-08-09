@@ -19,16 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-The MIT licence above covers the scripts and documentation in this repository
-only.
-
-This repository builds and may distribute binaries of Transmission, which is
-licensed under the GNU General Public License. Transmission source is fetched
-unmodified from the upstream release named in build/build-in-container.sh.
-Redistributed binaries are accompanied by that upstream source reference and
-the complete build recipe used to produce them.
-
-Transmission upstream: https://github.com/transmission/transmission
