@@ -153,24 +153,25 @@ Reports the active daemon, both checksums, whether the patch is still applied, a
 
 Updating the DownloadStation package overwrites `transmissiond` and silently reintroduces the bug. The installer keeps a copy of the patched binary, and [scripts/reapply.sh](scripts/reapply.sh) restores it when it detects a mismatch.
 
-Add it as a scheduled task in DSM so it heals itself:
-
-1. Open **Control Panel** and choose **Task Scheduler**.
-2. Click **Create**, then **Triggered Task**, then **User-defined script**.
-3. Set **Task** to `dsfix reapply`, **User** to `root`, and **Event** to `Boot-up`.
-4. Open the **Task Settings** tab and put this in **User-defined script**, adjusting the path to where you cloned the repo:
+One command registers it as a boot-triggered task:
 
 ```sh
-/volume1/<your-share>/synology-downloadstation-bt-fix/scripts/reapply.sh
+sudo ./scripts/install-boot-task.sh
 ```
 
-5. Click **OK** and confirm the warning about running scripts as root.
+That copies the scripts to `/var/packages/DownloadStation/etc/dsfix/scripts/`, which survives reboots, and registers a `bootup` task named `dsfix reapply transmissiond`. It is idempotent, backs up the scheduler database first, and the task shows up in **Control Panel** > **Task Scheduler** like any other.
 
-Repeat with a **Scheduled Task** running daily if you want it checked more often than at boot. The script is idempotent and exits immediately when the patch is already active.
+DSM's own API rejects programmatic creation of root-owned event tasks, so the script writes to the scheduler database and calls `synoschedtask --sync`. If you would rather do it by hand, create a **Triggered Task** > **User-defined script**, owner `root`, event `Boot-up`, running:
+
+```sh
+/var/packages/DownloadStation/etc/dsfix/scripts/reapply.sh
+```
+
+`reapply.sh` is idempotent and exits immediately when the patch is already active, so running it often costs nothing.
 
 When a package update replaces the daemon, `reapply.sh` promotes the newly installed vendor binary to be the stock backup before restoring the patched one, so `uninstall.sh` always returns you to the vendor binary you currently have rather than an outdated one.
 
-One judgement call the script deliberately leaves to you: if Synology ever ships a DownloadStation release that fixes this properly, `reapply.sh` will keep replacing their fixed daemon with this one. After any DownloadStation update, run `verify.sh` and check the reported stock version. If the stock daemon answers RPC on its own, remove the scheduled task and run `uninstall.sh`; the fix has served its purpose.
+One judgement call the script deliberately leaves to you: if Synology ever ships a DownloadStation release that fixes this properly, `reapply.sh` will keep replacing their fixed daemon with this one. After any DownloadStation update, run `verify.sh` and check the reported stock version. If the stock daemon answers RPC on its own, remove the task and run `uninstall.sh`; the fix has served its purpose.
 
 ## Uninstall
 
