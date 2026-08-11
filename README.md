@@ -24,6 +24,8 @@ scheduler.cpp:1292 Failed to add torrent, task id: <id>
 
 Reinstalling DownloadStation does not help. Resetting settings does not help. The network, the trackers, and the firewall are not involved.
 
+The 120 second timeout in the first line is what identifies this bug. A log that shows `Failed to add torrent` without it, on a system where `verify.sh` already reports the patch as ACTIVE, is a different problem with its own recovery: see [Recovering from an add-fail loop](#recovering-from-an-add-fail-loop).
+
 ## Root cause
 
 DownloadStation does not implement BitTorrent itself. It bundles `transmission-daemon` and drives it over a Unix domain socket at `/tmp/synodl_transmission.sock`. The scheduler sends an RPC request to add the torrent and waits.
@@ -148,6 +150,63 @@ sudo ./scripts/verify.sh
 ```
 
 Reports the active daemon, both checksums, whether the patch is still applied, and the live RPC probe result. `RESPONSE HTTP/1.1 409 Conflict` is a pass: 409 is Transmission asking for a session id, which proves the handler ran and replied.
+
+## Recovering from an add-fail loop
+
+A second failure mode looks like the original bug from the outside. Tasks sit at "waiting" and then fail, and the daemon is restarted every twenty seconds or so. It is a different cause, and `verify.sh` reports the patch as ACTIVE throughout.
+
+The log shows this pair repeating, with no RPC timeout anywhere near it:
+
+```
+synodlscheduler: transmission.cpp:37 Start Transmission daemon!
+synodlscheduler: scheduler.cpp:1292 Failed to add torrent, task id: 551
+```
+
+Transmission loads torrents from its own `torrents` directory at startup, so by the time the scheduler asks it to add one, it is already loaded. Transmission answers:
+
+```json
+{"arguments":{"torrent-duplicate":{"id":2,"name":"..."}},"result":"success"}
+```
+
+Transmission calls that success. DownloadStation accepts only `torrent-added`, so it records a failure, stops the daemon, and retries forever.
+
+```mermaid
+sequenceDiagram
+    participant DS as synodlscheduler
+    participant TD as transmissiond
+    TD->>TD: startup, loads torrents from resume dir
+    DS->>TD: torrent-add
+    TD-->>DS: result=success, torrent-duplicate
+    Note over DS: only torrent-added is accepted
+    DS->>TD: SIGTERM, restart, retry
+```
+
+The loop is not harmless. Each kill interrupts whatever the daemon was writing, and repeated cycles can truncate the resume bitfield. On a 1.7 TB torrent this was observed to drop reported progress from 99.98 percent to 10 percent and begin re-downloading 1.5 TB that was already on disk.
+
+To recover, remove the torrent from the daemon while keeping the files, then let DownloadStation add it again. Run as root, because the socket is `root:DownloadStation` mode 0770:
+
+```sh
+S=/tmp/synodl_transmission.sock
+SID=$(curl -s -D - -o /dev/null --unix-socket "$S" http://localhost/transmission/rpc \
+      | tr -d '\r' | awk '/^X-Transmission-Session-Id:/{print $2; exit}')
+rpc() { curl -s --unix-socket "$S" -H "X-Transmission-Session-Id: $SID" \
+        -H 'Content-Type: application/json' --data "$1" \
+        http://localhost/transmission/rpc; }
+
+rpc '{"method":"torrent-get","arguments":{"fields":["id","name","percentDone"]}}'
+rpc '{"method":"torrent-remove","arguments":{"ids":[1],"delete-local-data":false}}'
+
+/usr/syno/bin/synowebapi --exec api=SYNO.DownloadStation2.Task \
+  method=resume version=2 id='["dbid_551"]'
+```
+
+`delete-local-data` must be `false`. The point is to drop the daemon's registration, never the data.
+
+The `exit` in that `awk` matters. The body of the 409 response repeats the session id inside a `<code>` element, so a match without `exit` returns both copies concatenated, and the 96 character result is rejected with `400 Bad Request` on every subsequent call.
+
+The re-add succeeds because the duplicate is gone, and Transmission then checks the existing files rather than downloading them. The torrent comes back with its id set to the DownloadStation task id, which is the `task-id` extension doing its job. Wait for `status` to leave `checking` before judging the outcome; a 1.7 TB re-hash takes well over an hour, and a daemon killed mid-check reports whatever fraction it had reached.
+
+A permanent fix belongs in `torrentAdd`: when the request carries a `task-id` and the duplicate's id already matches it, report `torrent-added` instead of `torrent-duplicate`, since that is precisely the case DownloadStation mishandles. Ordinary Transmission clients never send `task-id`, so they would keep the standard reply. That change is not in this repository yet.
 
 ## Surviving DownloadStation updates
 
