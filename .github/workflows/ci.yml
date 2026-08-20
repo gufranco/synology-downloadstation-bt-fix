@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: Shell lint and format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          shellcheck --severity=warning scripts/*.sh build/*.sh
+
+      - name: shfmt
+        run: |
+          curl -fsSL -o /tmp/shfmt \
+            https://github.com/mvdan/sh/releases/download/v3.13.1/shfmt_v3.13.1_linux_amd64
+          chmod 755 /tmp/shfmt
+          /tmp/shfmt --version
+          /tmp/shfmt -d -i 2 -ci scripts/*.sh build/*.sh
+
+  patches:
+    name: Patches apply to upstream
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the upstream tarball
+        run: |
+          version=$(grep -oP 'TRANSMISSION_VERSION:-\K[0-9.]+' build/build.sh)
+          echo "resolved upstream version ${version}"
+          curl -fsSL -o transmission.tar.xz \
+            "https://github.com/transmission/transmission/releases/download/${version}/transmission-${version}.tar.xz"
+          tar xf transmission.tar.xz
+          echo "SRC=transmission-${version}" >> "$GITHUB_ENV"
+
+      - name: Apply every patch in order
+        working-directory: ${{ env.SRC }}
+        run: |
+          for patch_file in ../patches/*.patch; do
+            printf '::group::%s\n' "$patch_file"
+            patch -p1 --forward < "$patch_file"
+            printf '::endgroup::\n'
+          done
+
+      - name: Refuse a patch that changed nothing
+        working-directory: ${{ env.SRC }}
+        run: |
+          for symbol in tr_torrents_set_pending_id tr_torrents_read_task_id TR_KEY_torrent_added; do
+            grep -rq "$symbol" libtransmission/ \
+              || { echo "::error::${symbol} is absent after patching"; exit 1; }
+          done
+
+  build:
+    name: Build and inspect the daemon
+    runs-on: ubuntu-24.04
+    needs: [shell, patches]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build through the published recipe
+        run: TARGET_ARCH=x86_64 BUILD_JOBS=4 ./build/build.sh
+
+      - name: The daemon must identify itself
+        run: |
+          artifact=$(find dist -name 'transmissiond-*-x86_64' -type f | head -1)
+          echo "artifact: ${artifact}"
+          "$artifact" --version | tee /tmp/version.txt
+          grep -q 'transmission-daemon' /tmp/version.txt
+
+      - name: Link only against libraries DSM ships
+        run: |
+          artifact=$(find dist -name 'transmissiond-*-x86_64' -type f | head -1)
+          readelf -d "$artifact" | awk '/NEEDED/ {gsub(/[\[\]]/,"",$5); print $5}' | sort > /tmp/needed.txt
+          cat /tmp/needed.txt
+          cat > /tmp/allowed.txt <<'ALLOWED'
+          ld-linux-x86-64.so.2
+          libc.so.6
+          libcrypto.so.3
+          libcurl.so.4
+          libm.so.6
+          libssl.so.3
+          ALLOWED
+          sort -o /tmp/allowed.txt /tmp/allowed.txt
+          if ! diff -u /tmp/allowed.txt /tmp/needed.txt; then
+            echo "::error::the daemon gained a dependency DSM does not provide"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transmissiond-x86_64
+          path: dist/transmissiond-*-x86_64*
+          if-no-files-found: error
+
+  docs:
+    name: Documentation links resolve
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Every relative link and anchor must exist
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import re
+          import sys
+
+          failures = []
+          for name in ("README.md", "REFERENCE.md", "THIRD-PARTY-LICENSES.md", "AGENTS.md"):
+              if not os.path.exists(name):
+                  continue
+              text = open(name, encoding="utf-8").read()
+              anchors = {
+                  re.sub(r"\s+", "-", re.sub(r"[^\w\s-]", "", m.group(2).strip().lower()))
+                  for m in re.finditer(r"^(#{1,6})\s+(.*)$", text, re.M)
+              }
+              for match in re.finditer(r"\]\((?!https?://)([^)]+)\)", text):
+                  target = match.group(1)
+                  path, _, anchor = target.partition("#")
+                  if path and not os.path.exists(path):
+                      failures.append("%s -> missing file %s" % (name, path))
+                  if not path and anchor and anchor not in anchors:
+                      failures.append("%s -> missing anchor #%s" % (name, anchor))
+
+          for failure in failures:
+              print("::error::%s" % failure)
+          sys.exit(1 if failures else 0)
+          PYTHON
