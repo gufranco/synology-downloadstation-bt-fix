@@ -239,6 +239,14 @@ sudo ./scripts/test-duplicate-add.sh /path/to/some.torrent
 
 It adds paused, re-adds three ways, and removes with the data left alone. Case 3 is the one that matters: a re-add carrying the same `task-id` must answer `torrent-added`. On a daemon built without [patches/0002-report-added-for-downloadstation-duplicate.patch](patches/0002-report-added-for-downloadstation-duplicate.patch) it answers `torrent-duplicate`, which is the add-fail loop reproduced in one command. Cases 4 and 5 must keep answering `torrent-duplicate`; if they change, the condition has been widened past the request shape DownloadStation sends.
 
+That script stays inside one daemon session, which is exactly the case it cannot judge. Run the restart check as well:
+
+```sh
+sudo ./scripts/test-taskid-across-restart.sh /path/to/some.torrent
+```
+
+It adds with a `task-id`, restarts the daemon, and asserts the id came back. Without [patches/0003-persist-task-id-across-daemon-restarts.patch](patches/0003-persist-task-id-across-daemon-restarts.patch) the loader renumbers every torrent sequentially and the id is gone, so this fails on a daemon the previous script passes. Between them the two scripts cover both halves of the loop.
+
 ## Recovering from an add-fail loop
 
 A second failure mode looks like the original bug from the outside. Tasks sit at "waiting" and then fail, and the daemon is restarted every twenty seconds or so. It is a different cause, and `verify.sh` reports the patch as ACTIVE throughout.
@@ -320,7 +328,7 @@ DSM's own API rejects programmatic creation of root-owned event tasks, so the sc
 
 When a package update replaces the daemon, `reapply.sh` promotes the newly installed vendor binary to be the stock backup before restoring the patched one, so `uninstall.sh` always returns you to the vendor binary you currently have rather than an outdated one.
 
-One judgement call the script deliberately leaves to you: if Synology ever ships a DownloadStation release that fixes this properly, `reapply.sh` will keep replacing their fixed daemon with this one. After any DownloadStation update, run `verify.sh` and check the reported stock version. If the stock daemon answers RPC on its own, remove the task and run `uninstall.sh`; the fix has served its purpose.
+One judgement call the script deliberately leaves to you: if Synology ever ships a DownloadStation release that fixes this properly, `reapply.sh` will keep replacing their fixed daemon with this one. After any DownloadStation update, run `verify.sh` and check the reported stock version. If the stock daemon answers RPC on its own, run `uninstall.sh`; the fix has served its purpose.
 
 ## Uninstall
 
@@ -328,7 +336,11 @@ One judgement call the script deliberately leaves to you: if Synology ever ships
 sudo ./scripts/uninstall.sh
 ```
 
-Restores the stock daemon from the backup and removes the stop-timeout drop-in, returning the unit to the systemd default. BitTorrent will stop working again, which is the expected outcome of going back to the unpatched binary.
+Restores the stock daemon from the backup, removes the stop-timeout drop-in, deregisters the boot task, and discards the stored copy of the patched binary. BitTorrent will stop working again, which is the expected outcome of going back to the unpatched binary.
+
+Removing the boot task is the step that makes the uninstall stick. Without it the task still fires on the next reboot, finds no install marker, and reinstalls the patched daemon along with the drop-in, so the uninstall quietly reverses itself. The removal deletes only the row this project created and leaves every other scheduled task alone.
+
+If `sqlite3` is missing the script says so and continues; delete the task named `dsfix reapply transmissiond` from **Control Panel** > **Task Scheduler** by hand.
 
 ## Build from source
 
@@ -339,6 +351,14 @@ TARGET_ARCH=x86_64 BUILD_JOBS=4 ./build/build.sh
 The build runs in a `debian:12` container and emits a stripped binary plus a `.sha256` file into `dist/`. Set `TARGET_ARCH=aarch64` for ARM models. On a machine with less than 4 GB of RAM available to Docker, keep `BUILD_JOBS=1`; the compiler is memory-hungry and gets OOM-killed otherwise, especially under QEMU emulation.
 
 Building on a host of a different architecture requires `binfmt_misc` emulation. Docker Desktop and Colima provide it by default.
+
+## Contributing
+
+[AGENTS.md](AGENTS.md) is the working guide: the DSM environment facts that break ordinary assumptions, how the three patches relate, how to regenerate one without hand-writing hunk headers, and the verification discipline this project learned the hard way.
+
+Every push runs [.github/workflows/ci.yml](.github/workflows/ci.yml), which lints the shell scripts, applies every patch to a pristine upstream tarball, builds the daemon on a native x86_64 runner, and fails if the result gained a shared-library dependency DSM does not provide. The patch-apply job is the one that catches upstream drift; the dependency check is the one that catches a build that would refuse to start on the NAS.
+
+Neither the CI nor any local check can exercise the DownloadStation integration, because that needs a Synology. The three scripts under [scripts/](scripts) are how that half is verified, and a change to the daemon's behaviour is not finished until they have been run on real hardware.
 
 ## Licence
 
