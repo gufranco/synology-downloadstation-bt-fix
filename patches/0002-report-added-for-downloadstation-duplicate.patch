@@ -1,0 +1,62 @@
+--- a/libtransmission/torrents.h
++++ b/libtransmission/torrents.h
+@@ -26,6 +26,8 @@
+ struct tr_torrent;
+ 
+ void tr_torrents_set_pending_id(tr_torrent_id_t id);
++[[nodiscard]] tr_torrent_id_t tr_torrents_peek_pending_id();
++void tr_torrents_clear_pending_id();
+ 
+ // A helper class to manage tracking sets of tr_torrent objects.
+ class tr_torrents
+--- a/libtransmission/torrents.cc
++++ b/libtransmission/torrents.cc
+@@ -79,6 +79,16 @@
+     pending_torrent_id = id;
+ }
+ 
++tr_torrent_id_t tr_torrents_peek_pending_id()
++{
++    return pending_torrent_id;
++}
++
++void tr_torrents_clear_pending_id()
++{
++    pending_torrent_id = tr_torrent_id_t{};
++}
++
+ tr_torrent_id_t tr_torrents::add(tr_torrent* tor)
+ {
+     auto const requested_id = pending_torrent_id;
+--- a/libtransmission/rpcimpl.cc
++++ b/libtransmission/rpcimpl.cc
+@@ -1640,9 +1640,13 @@
+ {
+     using namespace JsonRpc;
+ 
++    auto const requested_id = tr_torrents_peek_pending_id();
++
+     tr_torrent* duplicate_of = nullptr;
+     tr_torrent* tor = tr_torrentNew(&ctor, &duplicate_of);
+ 
++    tr_torrents_clear_pending_id();
++
+     if (tor == nullptr && duplicate_of == nullptr)
+     {
+         tr_rpc_idle_done(data, Error::CORRUPT_TORRENT, {});
+@@ -1656,6 +1660,15 @@
+     };
+     if (duplicate_of != nullptr)
+     {
++        if (requested_id > tr_torrent_id_t{} && duplicate_of->id() == requested_id)
++        {
++            data->args_out.try_emplace(
++                TR_KEY_torrent_added,
++                make_torrent_info(duplicate_of, TrFormat::Object, std::data(Fields), std::size(Fields)));
++            tr_rpc_idle_done(data, Error::SUCCESS, {});
++            return;
++        }
++
+         data->args_out.try_emplace(
+             TR_KEY_torrent_duplicate,
+             make_torrent_info(duplicate_of, TrFormat::Object, std::data(Fields), std::size(Fields)));

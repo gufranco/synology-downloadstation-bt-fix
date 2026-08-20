@@ -19,12 +19,19 @@ curl -fsSL -o transmission.tar.xz \
 tar xf transmission.tar.xz
 cd "transmission-${TRANSMISSION_VERSION}"
 
-if [ -d /patches ] && compgen -G "/patches/*.patch" > /dev/null; then
-  for patch_file in /patches/*.patch; do
-    printf 'applying %s\n' "$patch_file"
-    patch -p1 < "$patch_file"
-  done
+if [ ! -d /patches ] || ! compgen -G "/patches/*.patch" >/dev/null; then
+  printf 'error: no patches found at /patches\n' >&2
+  printf 'the daemon is unusable with DownloadStation without them:\n' >&2
+  printf 'it answers RPC but ignores task-id, so every add reports\n' >&2
+  printf '"Failed to get torrent info". Mount the repository patches\n' >&2
+  printf 'directory read-only at /patches, which build.sh does.\n' >&2
+  exit 2
 fi
+
+for patch_file in /patches/*.patch; do
+  printf 'applying %s\n' "$patch_file"
+  patch -p1 <"$patch_file"
+done
 
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
