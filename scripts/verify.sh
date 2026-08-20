@@ -35,6 +35,18 @@ report_patch_state() {
   return 1
 }
 
+report_shutdown_grace() {
+  if shutdown_grace_is_active; then
+    log "shutdown grace:  ${SHUTDOWN_GRACE_SECONDS}s"
+    return 0
+  fi
+  warn "shutdown grace:  MISSING"
+  warn "                 the unit uses the systemd default, which is too short for"
+  warn "                 large torrents; a SIGKILL mid-save corrupts resume state."
+  warn "                 run install.sh or reapply.sh to restore it"
+  return 1
+}
+
 report_rpc() {
   if ! downloadstation_is_running; then
     warn "rpc probe:      SKIPPED (DownloadStation is not running)"
@@ -73,10 +85,14 @@ main() {
   patch_ok=0
   report_patch_state || patch_ok=1
 
+  grace_ok=0
+  report_shutdown_grace || grace_ok=1
+
   rpc_status=0
   report_rpc || rpc_status=$?
 
   [ "$patch_ok" = "0" ] || exit 1
+  [ "$grace_ok" = "0" ] || exit 1
   [ "$rpc_status" = "0" ] && exit 0
   [ "$rpc_status" = "2" ] && exit 2
   exit 1

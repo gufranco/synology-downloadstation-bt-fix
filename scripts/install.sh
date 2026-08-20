@@ -111,6 +111,7 @@ main() {
   stage_candidate
   validate_candidate
 
+  install_shutdown_grace
   stop_downloadstation
   back_up_stock_binary
   promote_candidate

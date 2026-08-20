@@ -16,6 +16,10 @@ DAEMON_STOP_TIMEOUT_SECONDS=15
 DAEMON_OWNER=DownloadStation:DownloadStation
 DAEMON_MODE=2755
 STOCK_MODE=755
+DAEMON_UNIT=pkg-DownloadStation-transmissiond.service
+SHUTDOWN_GRACE_DIR="/etc/systemd/system/${DAEMON_UNIT}.d"
+SHUTDOWN_GRACE_FILE="${SHUTDOWN_GRACE_DIR}/override.conf"
+SHUTDOWN_GRACE_SECONDS=300
 
 log() { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }
@@ -74,6 +78,33 @@ stop_downloadstation() {
 start_downloadstation() {
   log "starting DownloadStation"
   synopkg start DownloadStation >/dev/null 2>&1 || true
+}
+
+shutdown_grace_is_active() {
+  [ -f "$SHUTDOWN_GRACE_FILE" ] || return 1
+  grep -q "^TimeoutStopSec=${SHUTDOWN_GRACE_SECONDS}\$" "$SHUTDOWN_GRACE_FILE"
+}
+
+install_shutdown_grace() {
+  shutdown_grace_is_active && return 0
+
+  mkdir -p "$SHUTDOWN_GRACE_DIR"
+  cat >"$SHUTDOWN_GRACE_FILE" <<EOF
+[Service]
+TimeoutStopSec=${SHUTDOWN_GRACE_SECONDS}
+KillSignal=SIGTERM
+SendSIGKILL=yes
+EOF
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  log "shutdown grace set to ${SHUTDOWN_GRACE_SECONDS}s in ${SHUTDOWN_GRACE_FILE}"
+}
+
+remove_shutdown_grace() {
+  [ -f "$SHUTDOWN_GRACE_FILE" ] || return 0
+  rm -f "$SHUTDOWN_GRACE_FILE"
+  rmdir "$SHUTDOWN_GRACE_DIR" 2>/dev/null || true
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  log "shutdown grace removed; the unit reverts to the systemd default"
 }
 
 wait_for_rpc_socket() {

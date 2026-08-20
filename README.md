@@ -6,6 +6,8 @@ HTTP and FTP downloads are unaffected by the bug and keep working either way. On
 
 Three separate defects have to be fixed together. Each one alone still leaves BitTorrent dead, which is likely why this has gone unfixed for so long.
 
+A fourth defect decides whether the fix survives. It does not block the first torrent, so it stays invisible until the library holds torrents large enough that saving their state outlasts the 90 second stop timeout the service unit inherits. From then on every restart risks corrupting the saved state and dropping every task into an error the UI cannot explain.
+
 ## Symptoms
 
 Every BitTorrent task fails the same way, regardless of the torrent, the tracker, or the destination folder.
@@ -25,6 +27,8 @@ scheduler.cpp:1292 Failed to add torrent, task id: <id>
 Reinstalling DownloadStation does not help. Resetting settings does not help. The network, the trackers, and the firewall are not involved.
 
 The 120 second timeout in the first line is what identifies this bug. A log that shows `Failed to add torrent` without it, on a system where `verify.sh` already reports the patch as ACTIVE, is a different problem with its own recovery: see [Recovering from an add-fail loop](#recovering-from-an-add-fail-loop).
+
+The fourth defect is a third signature again. It appears on a system where BitTorrent already worked, usually after a reboot or a package restart. Every task turns to error at once, torrents that are complete on disk report 0% when resumed, and the log fills with `Recv failure: Connection reset by peer` rather than either of the above. `transmissiond` is absent from `ps`, because DownloadStation stops it once no task is left in a runnable state. It shares the add-fail loop's consequence, a truncated resume bitfield, and explains why that truncation is possible at all.
 
 ## Root cause
 
@@ -93,6 +97,47 @@ DownloadStation passes its own task number into `torrent-add` as a non-standard 
 
 [patches/0001-honor-downloadstation-task-id.patch](patches/0001-honor-downloadstation-task-id.patch) restores that behaviour in 45 lines. `tr_torrents::add()` already stores torrents in a lookup table that tolerates gaps, so honoring an arbitrary id only requires growing the table and placing the torrent at the requested index, falling back to the sequential id when the slot is taken or no id was supplied.
 
+### The fourth defect: the stop timeout is shorter than the state save
+
+The three defects above are what stops BitTorrent working at all. This one is what stops it staying fixed, and it only appears once the library holds torrents large enough to matter.
+
+`pkg-DownloadStation-transmissiond.service` sets no `TimeoutStopSec`, so it inherits the systemd default of 90 seconds. On shutdown Transmission writes a resume file per torrent. Those files scale with the piece count, so a multi-terabyte torrent produces a large one: on the reference system a 6.58 TB torrent has 392,361 pieces and a 50 MB resume file.
+
+Measured on that system, a full save takes about 83 seconds. The margin against the 90 second default is roughly 7 seconds, and any run that is slower than average gets `SIGKILL` partway through the write.
+
+That single kill is enough to start a loop that never exits on its own:
+
+```mermaid
+flowchart TD
+    A[SIGKILL during resume write] --> B[resume file truncated]
+    B --> C[next start cannot trust saved state]
+    C --> D[full re-verify of every torrent]
+    D --> E[daemon is I/O bound and stops answering RPC]
+    E --> F[DownloadStation 120s RPC timeout fires]
+    F --> G[DownloadStation kills and restarts the daemon]
+    G --> D
+    F --> H[every task ends in error]
+```
+
+Re-verification is the expensive step. Hashing 2.8 TB of already-present data takes hours, and DownloadStation's RPC timeout is a fixed 120 seconds that no setting exposes. The daemon never survives long enough to finish, so each restart begins the same verification again and the tasks drain into the error state one by one.
+
+Two details make this hard to recognise from the logs. The daemon is not crashing, so nothing reports a fault: the symptom is `SendTransmissionRPC error, status_code=0, error=Recv failure: Connection reset by peer`, which reads like a network problem. And after the save completes the process blocks in `futex_wait_queue_me` and never exits on its own, so the stop always ends in a kill regardless of the timeout.
+
+This is also the missing half of the add-fail loop described in [Recovering from an add-fail loop](#recovering-from-an-add-fail-loop). That loop supplies the repeated kills; the short stop timeout is what makes each kill destructive. Raising the timeout does not stop the loop, but it stops a kill from truncating a resume file, so the loop no longer costs a re-download.
+
+Because the state is durable once the save finishes, the fix is a bounded grace rather than an unbounded one. The installer writes a drop-in:
+
+```ini
+[Service]
+TimeoutStopSec=300
+KillSignal=SIGTERM
+SendSIGKILL=yes
+```
+
+300 seconds is about 3.5x the observed save time, which covers a slow run without making a reboot wait indefinitely on a daemon that is known to hang after it has finished writing.
+
+The drop-in goes to `/etc/systemd/system/pkg-DownloadStation-transmissiond.service.d/override.conf`. That path belongs to the administrator rather than to the package, so unlike the daemon binary it survives a DownloadStation update untouched, and it takes precedence over the unit shipped in `/usr/local/lib/systemd/system`. `verify.sh` reports whether it is present.
+
 ### Why the newer daemon still talks to DownloadStation
 
 Transmission 4.1 introduced a JSON-RPC 2.0 API, which raises the obvious question of whether an older client still works. It does. The release ships `libtransmission/api-compat.cc`, a compatibility layer mapping 212 legacy mixed-case RPC keys onto the current snake-case names. Older clients are a supported case upstream, not an accident, which is why DownloadStation needs no modification of its own.
@@ -141,7 +186,7 @@ Download the artifact for your architecture from the releases page, or build it 
 sudo ./scripts/install.sh ./dist/transmissiond-4.1.1-taskid-x86_64
 ```
 
-The installer stops DownloadStation, backs up the stock binary to `transmissiond.stock`, installs the replacement with the original owner and mode, restarts the package, and then proves the fix by sending a real RPC request over the domain socket. It refuses to install anything that is not an ELF binary identifying itself as `transmission-daemon`.
+The installer writes the stop-timeout drop-in, stops DownloadStation, backs up the stock binary to `transmissiond.stock`, installs the replacement with the original owner and mode, restarts the package, and then proves the fix by sending a real RPC request over the domain socket. It refuses to install anything that is not an ELF binary identifying itself as `transmission-daemon`.
 
 ## Verify
 
@@ -149,7 +194,9 @@ The installer stops DownloadStation, backs up the stock binary to `transmissiond
 sudo ./scripts/verify.sh
 ```
 
-Reports the active daemon, both checksums, whether the patch is still applied, and the live RPC probe result. `RESPONSE HTTP/1.1 409 Conflict` is a pass: 409 is Transmission asking for a session id, which proves the handler ran and replied.
+Reports the active daemon, both checksums, whether the patch is still applied, whether the stop-timeout drop-in is present, and the live RPC probe result. `RESPONSE HTTP/1.1 409 Conflict` is a pass: 409 is Transmission asking for a session id, which proves the handler ran and replied.
+
+A missing drop-in is worth acting on even when everything else passes, because the daemon behaves normally until the next restart and only then loses its saved state.
 
 ## Recovering from an add-fail loop
 
@@ -182,6 +229,8 @@ sequenceDiagram
 ```
 
 The loop is not harmless. Each kill interrupts whatever the daemon was writing, and repeated cycles can truncate the resume bitfield. On a 1.7 TB torrent this was observed to drop reported progress from 99.98 percent to 10 percent and begin re-downloading 1.5 TB that was already on disk.
+
+That truncation is not inevitable, and the fix for it is in [The fourth defect](#the-fourth-defect-the-stop-timeout-is-shorter-than-the-state-save). A kill only truncates because the stop timeout expires before the save finishes. With the drop-in installed the daemon still gets restarted by this loop, but it completes its write first, so progress survives and no re-download starts. Install that before working through the recovery below, or the recovery can be undone by the next cycle.
 
 To recover, remove the torrent from the daemon while keeping the files, then let DownloadStation add it again. Run as root, because the socket is `root:DownloadStation` mode 0770:
 
@@ -238,7 +287,7 @@ One judgement call the script deliberately leaves to you: if Synology ever ships
 sudo ./scripts/uninstall.sh
 ```
 
-Restores the stock daemon from the backup. BitTorrent will stop working again, which is the expected outcome of going back to the unpatched binary.
+Restores the stock daemon from the backup and removes the stop-timeout drop-in, returning the unit to the systemd default. BitTorrent will stop working again, which is the expected outcome of going back to the unpatched binary.
 
 ## Build from source
 

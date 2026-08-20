@@ -25,6 +25,7 @@ main() {
 
   stop_downloadstation
   restore_stock_binary
+  remove_shutdown_grace
   start_downloadstation
 
   rm -f "$INSTALLED_MARKER"

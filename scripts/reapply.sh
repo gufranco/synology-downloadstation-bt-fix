@@ -36,6 +36,8 @@ main() {
   require_root
   require_downloadstation
 
+  install_shutdown_grace
+
   if patch_is_active; then
     log "patch already active; nothing to do"
     exit 0
