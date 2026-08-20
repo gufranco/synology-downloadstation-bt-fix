@@ -221,6 +221,14 @@ Reports the active daemon, both checksums, whether the patch is still applied, w
 
 A missing drop-in is worth acting on even when everything else passes, because the daemon behaves normally until the next restart and only then loses its saved state.
 
+To check the duplicate reply as well, point the second script at any torrent whose payload is small or absent:
+
+```sh
+sudo ./scripts/test-duplicate-add.sh /path/to/some.torrent
+```
+
+It adds paused, re-adds three ways, and removes with the data left alone. Case 3 is the one that matters: a re-add carrying the same `task-id` must answer `torrent-added`. On a daemon built without [patches/0002-report-added-for-downloadstation-duplicate.patch](patches/0002-report-added-for-downloadstation-duplicate.patch) it answers `torrent-duplicate`, which is the add-fail loop reproduced in one command. Cases 4 and 5 must keep answering `torrent-duplicate`; if they change, the condition has been widened past the request shape DownloadStation sends.
+
 ## Recovering from an add-fail loop
 
 A second failure mode looks like the original bug from the outside. Tasks sit at "waiting" and then fail, and the daemon is restarted every twenty seconds or so. It is a different cause, and `verify.sh` reports the patch as ACTIVE throughout.
