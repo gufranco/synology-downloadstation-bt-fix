@@ -20,6 +20,9 @@ DAEMON_UNIT=pkg-DownloadStation-transmissiond.service
 SHUTDOWN_GRACE_DIR="/etc/systemd/system/${DAEMON_UNIT}.d"
 SHUTDOWN_GRACE_FILE="${SHUTDOWN_GRACE_DIR}/override.conf"
 SHUTDOWN_GRACE_SECONDS=300
+INSTALLED_SCRIPTS_DIR="${STATE_DIR}/scripts"
+SCHEDULER_DB=/usr/syno/etc/esynoscheduler/esynoscheduler.db
+BOOT_TASK_NAME="dsfix reapply transmissiond"
 
 log() { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }
@@ -105,6 +108,29 @@ remove_shutdown_grace() {
   rmdir "$SHUTDOWN_GRACE_DIR" 2>/dev/null || true
   systemctl daemon-reload >/dev/null 2>&1 || true
   log "shutdown grace removed; the unit reverts to the systemd default"
+}
+
+boot_task_is_registered() {
+  command -v sqlite3 >/dev/null 2>&1 || return 1
+  [ -f "$SCHEDULER_DB" ] || return 1
+  count=$(sqlite3 "$SCHEDULER_DB" \
+    "SELECT COUNT(*) FROM task WHERE task_name = '${BOOT_TASK_NAME}';" 2>/dev/null || printf '0\n')
+  [ "$count" != "0" ]
+}
+
+remove_boot_task() {
+  boot_task_is_registered || return 0
+
+  cp -f "$SCHEDULER_DB" "${SCHEDULER_DB}.bak-dsfix-remove"
+  sqlite3 "$SCHEDULER_DB" "DELETE FROM task WHERE task_name = '${BOOT_TASK_NAME}';"
+  synoschedtask --sync >/dev/null 2>&1 || true
+
+  if boot_task_is_registered; then
+    warn "boot task could not be removed; delete it in Control Panel > Task Scheduler"
+    return 1
+  fi
+
+  log "boot task removed: ${BOOT_TASK_NAME}"
 }
 
 wait_for_rpc_socket() {

@@ -4,11 +4,9 @@ set -eu
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "${SCRIPT_DIR}/common.sh"
 
-SCHEDULER_DB=/usr/syno/etc/esynoscheduler/esynoscheduler.db
 SCHEDULER_DB_BACKUP="${SCHEDULER_DB}.bak-dsfix"
-TASK_NAME="dsfix reapply transmissiond"
+TASK_NAME="$BOOT_TASK_NAME"
 TASK_DESCRIPTION="Re-applies the patched transmissiond after a DownloadStation update"
-INSTALLED_SCRIPTS_DIR="${STATE_DIR}/scripts"
 BOOT_SCRIPT="${INSTALLED_SCRIPTS_DIR}/reapply.sh"
 
 require_sqlite() {
@@ -18,7 +16,8 @@ require_sqlite() {
 
 install_scripts() {
   mkdir -p "$INSTALLED_SCRIPTS_DIR"
-  for name in common.sh install.sh uninstall.sh verify.sh reapply.sh; do
+  for name in common.sh install.sh uninstall.sh verify.sh reapply.sh \
+    test-duplicate-add.sh test-taskid-across-restart.sh; do
     cp -f "${SCRIPT_DIR}/${name}" "${INSTALLED_SCRIPTS_DIR}/${name}"
   done
   chmod 755 "${INSTALLED_SCRIPTS_DIR}"/*.sh
@@ -26,8 +25,7 @@ install_scripts() {
 }
 
 task_exists() {
-  count=$(sqlite3 "$SCHEDULER_DB" "SELECT COUNT(*) FROM task WHERE task_name = '${TASK_NAME}';" 2>/dev/null || printf '0\n')
-  [ "$count" != "0" ]
+  boot_task_is_registered
 }
 
 register_task() {

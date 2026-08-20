@@ -17,19 +17,26 @@ restore_stock_binary() {
   log "restored stock binary: $(daemon_version_of "$TARGET_BIN")"
 }
 
+discard_state() {
+  rm -f "$INSTALLED_MARKER" "$PATCHED_COPY"
+  rm -rf "$INSTALLED_SCRIPTS_DIR"
+  rmdir "$STATE_DIR" 2>/dev/null || true
+}
+
 main() {
   require_root
   require_downloadstation
 
   log "current daemon: $(daemon_version_of "$TARGET_BIN")"
 
+  remove_boot_task || true
+
   stop_downloadstation
   restore_stock_binary
   remove_shutdown_grace
   start_downloadstation
 
-  rm -f "$INSTALLED_MARKER"
-  rmdir "$STATE_DIR" 2>/dev/null || true
+  discard_state
 
   log "uninstall complete; the stock daemon is active again"
   log "note: the stock daemon does not answer RPC over the domain socket, so BT tasks will fail again"
