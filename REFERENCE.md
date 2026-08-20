@@ -53,7 +53,11 @@ Install the third row. The unpatched 4.1.1 build is recorded for completeness: i
 
 MD5 is listed because `verify.sh` uses `md5sum`, which DSM provides, while `sha256sum` is absent there.
 
-## Patch
+## Patches
+
+Applied in order by [build/build-in-container.sh](build/build-in-container.sh), which now fails the build when the directory is absent rather than emitting an unpatched daemon.
+
+### 0001-honor-downloadstation-task-id.patch
 
 | File | Lines changed | Purpose |
 |---|---|---|
@@ -61,7 +65,15 @@ MD5 is listed because `verify.sh` uses `md5sum`, which DSM provides, while `sha2
 | `libtransmission/torrents.cc` | +39 -2 | Place a torrent at a caller-supplied id, falling back to sequential |
 | `libtransmission/rpcimpl.cc` | +6 | Read DownloadStation's `task-id` argument in `torrent-add` |
 
-Generated with `git diff` against the upstream `4.1.1` tag and applied with `patch -p1`.
+### 0002-report-added-for-downloadstation-duplicate.patch
+
+| File | Lines changed | Purpose |
+|---|---|---|
+| `libtransmission/torrents.h` | +2 | Declare the peek and clear accessors for the pending id |
+| `libtransmission/torrents.cc` | +10 | Define them |
+| `libtransmission/rpcimpl.cc` | +13 | Report `torrent-added` when a duplicate already carries the requested `task-id`, and clear the pending id on every add attempt |
+
+Both are plain unified diffs against the upstream `4.1.1` tarball, applied with `patch -p1`. The second applies on top of the first and depends on it, since it extends the pending-id mechanism the first introduces.
 
 ## Paths
 
@@ -106,6 +118,21 @@ Measured on the verified environment, with a library of 21 torrents totalling ro
 | Process state after the save completes | `S`, blocked in `futex_wait_queue_me`, never exits |
 
 The daemon does not exit on its own once the save is done, so every stop ends in `SIGKILL` regardless of the timeout. The value chosen therefore only has to be long enough to cover the save. Reads of `/proc/<pid>/task/*/wchan` during a stop show the saving thread in `D` state on `wait_on_page_bit_killable`, which is why the duration tracks disk throughput rather than CPU time.
+
+### Observed across a real power-off
+
+The drop-in was exercised by an unplanned full power-off, which is a stronger test than `systemctl stop` because DSM drives the shutdown on its own schedule.
+
+| Observation | Value |
+|---|---|
+| `synopoweroff` logged | 13:26:51 |
+| Every resume file's mtime | 13:26 |
+| Largest resume file written | 12,023,823 bytes, the 1.68 TB torrent |
+| Volume unmount began | 13:27:26 |
+| Drop-in after the cold boot | present, `TimeoutStopUSec=5min` |
+| Boot task after the cold boot | ran, `exit_code 0` |
+
+Every torrent's state was written before the volume was unmounted, including the bitfield of the torrent that previous cycles had truncated. On the same hardware without the drop-in, this is the point at which progress was lost and a re-download began.
 
 To measure it on another system, stop the unit and watch the resume directory rather than the unit state:
 

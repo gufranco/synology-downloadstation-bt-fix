@@ -6,7 +6,7 @@ HTTP and FTP downloads are unaffected by the bug and keep working either way. On
 
 Three separate defects have to be fixed together. Each one alone still leaves BitTorrent dead, which is likely why this has gone unfixed for so long.
 
-A fourth defect decides whether the fix survives. It does not block the first torrent, so it stays invisible until the library holds torrents large enough that saving their state outlasts the 90 second stop timeout the service unit inherits. From then on every restart risks corrupting the saved state and dropping every task into an error the UI cannot explain.
+Two further defects decide whether the fix survives. Neither blocks the first torrent, so both stay invisible until the library grows. A duplicate add is reported as a failure, which puts DownloadStation into an endless restart loop, and the service unit's stop timeout is shorter than the time the daemon needs to save its state, which turns each of those restarts into a truncated resume file. Together they drop every task into an error the UI cannot explain and start re-downloading data that is already on disk.
 
 ## Symptoms
 
@@ -138,6 +138,29 @@ SendSIGKILL=yes
 
 The drop-in goes to `/etc/systemd/system/pkg-DownloadStation-transmissiond.service.d/override.conf`. That path belongs to the administrator rather than to the package, so unlike the daemon binary it survives a DownloadStation update untouched, and it takes precedence over the unit shipped in `/usr/local/lib/systemd/system`. `verify.sh` reports whether it is present.
 
+### The fifth defect: a duplicate add is reported as a failure
+
+The daemon loads its own `torrents` directory at startup, so a torrent DownloadStation asks it to add after a restart is already present. Transmission answers with `torrent-duplicate` and `result: success`. DownloadStation accepts only `torrent-added`, so it treats a correct answer as a failure, stops the daemon, and retries forever. [Recovering from an add-fail loop](#recovering-from-an-add-fail-loop) covers the symptom and the manual recovery.
+
+The two defects compound. This one supplies an endless stream of restarts; the stop timeout above decides whether each restart is harmless or destroys the saved state. Fixing only the timeout leaves the loop spinning; fixing only the loop leaves the next unrelated restart able to truncate a resume file. Both are needed.
+
+The patch changes one branch. When a `torrent-add` carries a `task-id` and the existing torrent already has that exact id, the reply is `torrent-added` rather than `torrent-duplicate`:
+
+```cpp
+if (requested_id > tr_torrent_id_t{} && duplicate_of->id() == requested_id)
+{
+    data->args_out.try_emplace(
+        TR_KEY_torrent_added,
+        make_torrent_info(duplicate_of, TrFormat::Object, std::data(Fields), std::size(Fields)));
+    tr_rpc_idle_done(data, Error::SUCCESS, {});
+    return;
+}
+```
+
+The condition is deliberately narrow. It requires a `task-id`, which no ordinary Transmission client sends, and it requires the already-loaded torrent to carry that same id, which happens only when this daemon assigned it from a previous `task-id` on the same task. A duplicate that is genuinely a different torrent, or one added by any other client, still gets the standard `torrent-duplicate` reply. The follow-up `torrent-get` that DownloadStation issues then succeeds, because the torrent really is present under the id it asked for.
+
+The same patch closes a leak in the first one. `tr_torrents::add()` consumes the pending `task-id`, but a duplicate never reaches `add()`, so the id stayed set and the next `torrent-add` arriving without a `task-id` would silently inherit it. The pending id is now cleared once the add attempt returns, whatever the outcome.
+
 ### Why the newer daemon still talks to DownloadStation
 
 Transmission 4.1 introduced a JSON-RPC 2.0 API, which raises the obvious question of whether an older client still works. It does. The release ships `libtransmission/api-compat.cc`, a compatibility layer mapping 212 legacy mixed-case RPC keys onto the current snake-case names. Older clients are a supported case upstream, not an accident, which is why DownloadStation needs no modification of its own.
@@ -255,7 +278,7 @@ The `exit` in that `awk` matters. The body of the 409 response repeats the sessi
 
 The re-add succeeds because the duplicate is gone, and Transmission then checks the existing files rather than downloading them. The torrent comes back with its id set to the DownloadStation task id, which is the `task-id` extension doing its job. Wait for `status` to leave `checking` before judging the outcome; a 1.7 TB re-hash takes well over an hour, and a daemon killed mid-check reports whatever fraction it had reached.
 
-A permanent fix belongs in `torrentAdd`: when the request carries a `task-id` and the duplicate's id already matches it, report `torrent-added` instead of `torrent-duplicate`, since that is precisely the case DownloadStation mishandles. Ordinary Transmission clients never send `task-id`, so they would keep the standard reply. That change is not in this repository yet.
+The recovery above is manual and has to be repeated every time the loop starts. [patches/0002-report-added-for-downloadstation-duplicate.patch](patches/0002-report-added-for-downloadstation-duplicate.patch) removes the need for it, and is described in [The fifth defect](#the-fifth-defect-a-duplicate-add-is-reported-as-a-failure).
 
 ## Surviving DownloadStation updates
 
