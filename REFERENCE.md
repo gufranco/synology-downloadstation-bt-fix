@@ -47,9 +47,10 @@ Linking against the system copies fails at startup, because Debian 12 ships `lib
 |---|---|---|---|---|
 | Stock vendor daemon | 4.0.5 | 2588388 | `d0eab068243dc18cc503b254f90fe40b9d3ef8aaa3fcdef00c28e88be7d479e5` | `b9563c971fab98399f34226abe528a0f` |
 | Upstream build, no patch | 4.1.1 | 4823480 | `80a4e58f1ad5ea0d5ab5dcb25d642a1befe41a66d5c210c5f32e4c2e4661b810` | `b8c0fdbfc1a8cddc67297d0a7c3f7c2f` |
-| **Installable artifact** | 4.1.1 + task-id patch | 4823480 | `8f0e3217ffc2fd9bc2dabc9e159cb155858761fd190e3a6af7c6919a08b19f63` | `ff85cb20374b4f28f00e59d7d15f4ffc` |
+| Task-id patch only, superseded | 4.1.1 | 4823480 | `8f0e3217ffc2fd9bc2dabc9e159cb155858761fd190e3a6af7c6919a08b19f63` | `ff85cb20374b4f28f00e59d7d15f4ffc` |
+| **Installable artifact** | 4.1.1 + both patches | 4823480 | `beeaf176f41055a04426750a5a1bb8ed4915266785f427993bd1bbab38f58425` | `bef86486b5284973839941dbd97876f5` |
 
-Install the third row. The unpatched 4.1.1 build is recorded for completeness: it fixes the RPC silence but not the `task-id` lookup, so DownloadStation still reports `Failed to get torrent info` with it.
+Install the last row. The two rows above it are recorded for provenance rather than for use. The unpatched build fixes the RPC silence but ignores `task-id`, so DownloadStation reports `Failed to get torrent info` on every add. The task-id-only build gets past that and then loops on a duplicate add after any restart.
 
 MD5 is listed because `verify.sh` uses `md5sum`, which DSM provides, while `sha256sum` is absent there.
 

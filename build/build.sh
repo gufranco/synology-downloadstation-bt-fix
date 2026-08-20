@@ -5,6 +5,8 @@ TRANSMISSION_VERSION="${TRANSMISSION_VERSION:-4.1.1}"
 TARGET_ARCH="${TARGET_ARCH:-x86_64}"
 BUILD_JOBS="${BUILD_JOBS:-1}"
 OUTPUT_DIR="${OUTPUT_DIR:-$(pwd)/dist}"
+ARTIFACT_SUFFIX="${ARTIFACT_SUFFIX:-dsfix}"
+artifact_name="transmissiond-${TRANSMISSION_VERSION}-${ARTIFACT_SUFFIX}-${TARGET_ARCH}"
 
 case "$TARGET_ARCH" in
   x86_64) docker_platform=linux/amd64 ;;
@@ -37,10 +39,10 @@ docker run -i --name "$container_name" --platform "$docker_platform" \
   debian:12 bash -s <"${script_dir}/build-in-container.sh"
 
 docker cp "${container_name}:/out/transmission-daemon" \
-  "${OUTPUT_DIR}/transmissiond-${TRANSMISSION_VERSION}-${TARGET_ARCH}"
+  "${OUTPUT_DIR}/${artifact_name}"
 docker rm "$container_name" >/dev/null
 
-artifact="${OUTPUT_DIR}/transmissiond-${TRANSMISSION_VERSION}-${TARGET_ARCH}"
+artifact="${OUTPUT_DIR}/${artifact_name}"
 chmod 755 "$artifact"
 (cd "$OUTPUT_DIR" && sha256sum "$(basename "$artifact")" >"$(basename "$artifact").sha256")
 

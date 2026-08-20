@@ -206,7 +206,7 @@ Other models are likely affected by the same bug, but only the hardware listed a
 Download the artifact for your architecture from the releases page, or build it yourself with [build/build.sh](build/build.sh).
 
 ```sh
-sudo ./scripts/install.sh ./dist/transmissiond-4.1.1-taskid-x86_64
+sudo ./scripts/install.sh ./dist/transmissiond-4.1.1-dsfix-x86_64
 ```
 
 The installer writes the stop-timeout drop-in, stops DownloadStation, backs up the stock binary to `transmissiond.stock`, installs the replacement with the original owner and mode, restarts the package, and then proves the fix by sending a real RPC request over the domain socket. It refuses to install anything that is not an ELF binary identifying itself as `transmission-daemon`.
