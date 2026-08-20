@@ -17,9 +17,12 @@ DAEMON_OWNER=DownloadStation:DownloadStation
 DAEMON_MODE=2755
 STOCK_MODE=755
 
-log()  { printf '%s\n' "$*"; }
+log() { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }
-die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
 
 require_root() {
   [ "$(id -u)" = "0" ] || die "must run as root; re-run with sudo"
@@ -33,9 +36,9 @@ require_downloadstation() {
 
 detect_arch() {
   case "$(uname -m)" in
-    x86_64)  printf 'x86_64\n' ;;
+    x86_64) printf 'x86_64\n' ;;
     aarch64) printf 'aarch64\n' ;;
-    *)       die "unsupported architecture: $(uname -m)" ;;
+    *) die "unsupported architecture: $(uname -m)" ;;
   esac
 }
 
@@ -86,7 +89,10 @@ wait_for_rpc_socket() {
 
 probe_rpc() {
   timeout_seconds="${1:-20}"
-  [ -S "$RPC_SOCKET" ] || { warn "rpc socket absent: ${RPC_SOCKET}"; return 2; }
+  [ -S "$RPC_SOCKET" ] || {
+    warn "rpc socket absent: ${RPC_SOCKET}"
+    return 2
+  }
   python3 - "$RPC_SOCKET" "$timeout_seconds" <<'PYTHON'
 import socket
 import sys

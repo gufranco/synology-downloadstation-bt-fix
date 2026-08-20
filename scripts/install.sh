@@ -18,11 +18,14 @@ USAGE
 }
 
 stage_candidate() {
-  [ -n "$REPLACEMENT_BIN" ] || { usage; exit 2; }
+  [ -n "$REPLACEMENT_BIN" ] || {
+    usage
+    exit 2
+  }
   [ -f "$REPLACEMENT_BIN" ] || die "replacement binary not found: ${REPLACEMENT_BIN}"
 
-  head -c 4 "$REPLACEMENT_BIN" | od -An -c | tr -d ' \n' | grep -q 'ELF' \
-    || die "replacement is not an ELF binary: ${REPLACEMENT_BIN}"
+  head -c 4 "$REPLACEMENT_BIN" | od -An -c | tr -d ' \n' | grep -q 'ELF' ||
+    die "replacement is not an ELF binary: ${REPLACEMENT_BIN}"
 
   cp -f "$REPLACEMENT_BIN" "$CANDIDATE_BIN"
   chmod 755 "$CANDIDATE_BIN"
@@ -66,7 +69,7 @@ record_state() {
   mkdir -p "$STATE_DIR"
   cp -f "$TARGET_BIN" "$PATCHED_COPY"
   chmod 755 "$PATCHED_COPY"
-  cat > "$INSTALLED_MARKER" <<EOF
+  cat >"$INSTALLED_MARKER" <<EOF
 patched_md5=$(checksum_of "$TARGET_BIN")
 stock_md5=$(checksum_of "$STOCK_BACKUP")
 patched_version=$(daemon_version_of "$TARGET_BIN")
@@ -87,8 +90,14 @@ verify_runtime() {
   probe_result=$(probe_rpc 25 || true)
   log "rpc probe: ${probe_result}"
   case "$probe_result" in
-    RESPONSE*) log "PASS: transmissiond answers RPC over the domain socket"; return 0 ;;
-    *)         warn "FAIL: transmissiond still does not answer RPC"; return 1 ;;
+    RESPONSE*)
+      log "PASS: transmissiond answers RPC over the domain socket"
+      return 0
+      ;;
+    *)
+      warn "FAIL: transmissiond still does not answer RPC"
+      return 1
+      ;;
   esac
 }
 
@@ -113,9 +122,18 @@ main() {
   verify_runtime || verify_status=$?
 
   case "$verify_status" in
-    0) log "install complete and verified"; exit 0 ;;
-    2) log "install complete; verification pending a BT task"; exit 0 ;;
-    *) warn "verification failed; run ./uninstall.sh to restore the stock binary"; exit 1 ;;
+    0)
+      log "install complete and verified"
+      exit 0
+      ;;
+    2)
+      log "install complete; verification pending a BT task"
+      exit 0
+      ;;
+    *)
+      warn "verification failed; run ./uninstall.sh to restore the stock binary"
+      exit 1
+      ;;
   esac
 }
 

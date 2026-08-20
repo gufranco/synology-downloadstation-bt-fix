@@ -16,7 +16,10 @@ report_binaries() {
 }
 
 report_patch_state() {
-  [ -f "$INSTALLED_MARKER" ] || { log "patch state:    not installed by this tool"; return 0; }
+  [ -f "$INSTALLED_MARKER" ] || {
+    log "patch state:    not installed by this tool"
+    return 0
+  }
 
   recorded_md5=$(awk -F= '/^patched_md5=/{print $2}' "$INSTALLED_MARKER")
   current_md5=$(checksum_of "$TARGET_BIN")
@@ -50,8 +53,14 @@ report_rpc() {
   probe_result=$(probe_rpc 25 || true)
   log "rpc probe:      ${probe_result}"
   case "$probe_result" in
-    RESPONSE*) log "verdict:        PASS"; return 0 ;;
-    *)         warn "verdict:        FAIL"; return 1 ;;
+    RESPONSE*)
+      log "verdict:        PASS"
+      return 0
+      ;;
+    *)
+      warn "verdict:        FAIL"
+      return 1
+      ;;
   esac
 }
 
