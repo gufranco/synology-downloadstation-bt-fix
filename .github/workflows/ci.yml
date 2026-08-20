@@ -75,7 +75,7 @@ jobs:
         run: |
           artifact=$(find dist -name 'transmissiond-*-x86_64' -type f | head -1)
           echo "artifact: ${artifact}"
-          "$artifact" --version | tee /tmp/version.txt
+          "$artifact" --version 2>&1 | tee /tmp/version.txt
           grep -q 'transmission-daemon' /tmp/version.txt
 
       - name: Link only against libraries DSM ships
