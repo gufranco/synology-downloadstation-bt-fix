@@ -18,6 +18,11 @@ case "$TARGET_ARCH" in
 esac
 
 container_name="dsfix-build-${TARGET_ARCH}-${TRANSMISSION_VERSION//./-}-$$"
+cleanup_container() {
+  docker stop "$container_name" >/dev/null 2>&1 || true
+  docker rm "$container_name" >/dev/null 2>&1 || true
+}
+trap cleanup_container EXIT
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 mkdir -p "$OUTPUT_DIR"
@@ -40,7 +45,6 @@ docker run -i --name "$container_name" --platform "$docker_platform" \
 
 docker cp "${container_name}:/out/transmission-daemon" \
   "${OUTPUT_DIR}/${artifact_name}"
-docker rm "$container_name" >/dev/null
 
 artifact="${OUTPUT_DIR}/${artifact_name}"
 chmod 755 "$artifact"

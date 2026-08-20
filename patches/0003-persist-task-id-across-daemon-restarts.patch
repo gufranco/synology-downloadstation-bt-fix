@@ -1,0 +1,118 @@
+--- a/libtransmission/torrents.h
++++ b/libtransmission/torrents.h
+@@ -28,6 +28,8 @@
+ void tr_torrents_set_pending_id(tr_torrent_id_t id);
+ [[nodiscard]] tr_torrent_id_t tr_torrents_peek_pending_id();
+ void tr_torrents_clear_pending_id();
++void tr_torrents_write_task_id(std::string_view torrent_dir, std::string_view info_hash, tr_torrent_id_t id);
++[[nodiscard]] tr_torrent_id_t tr_torrents_read_task_id(std::string_view torrent_dir, std::string_view info_hash);
+ 
+ // A helper class to manage tracking sets of tr_torrent objects.
+ class tr_torrents
+--- a/libtransmission/torrents.cc
++++ b/libtransmission/torrents.cc
+@@ -4,7 +4,11 @@
+ // License text can be found in the licenses/ folder.
+ 
+ #include <algorithm>
++#include <array>
++#include <cstdio>
++#include <cstdlib>
+ #include <ctime>
++#include <string>
+ #include <string_view>
+ #include <vector>
+ 
+@@ -89,6 +93,59 @@
+     pending_torrent_id = tr_torrent_id_t{};
+ }
+ 
++namespace
++{
++std::string task_id_path(std::string_view torrent_dir, std::string_view info_hash)
++{
++    auto path = std::string{ torrent_dir };
++    path += '/';
++    path += info_hash;
++    path += ".taskid";
++    return path;
++}
++} // namespace
++
++void tr_torrents_write_task_id(std::string_view torrent_dir, std::string_view info_hash, tr_torrent_id_t id)
++{
++    if (std::empty(torrent_dir) || std::empty(info_hash) || id <= tr_torrent_id_t{})
++    {
++        return;
++    }
++
++    auto const path = task_id_path(torrent_dir, info_hash);
++    if (auto* const fp = std::fopen(path.c_str(), "we"); fp != nullptr)
++    {
++        std::fprintf(fp, "%d\n", static_cast<int>(id));
++        std::fclose(fp);
++    }
++}
++
++tr_torrent_id_t tr_torrents_read_task_id(std::string_view torrent_dir, std::string_view info_hash)
++{
++    if (std::empty(torrent_dir) || std::empty(info_hash))
++    {
++        return {};
++    }
++
++    auto const path = task_id_path(torrent_dir, info_hash);
++    auto* const fp = std::fopen(path.c_str(), "re");
++    if (fp == nullptr)
++    {
++        return {};
++    }
++
++    auto buffer = std::array<char, 32>{};
++    auto const read = std::fgets(std::data(buffer), static_cast<int>(std::size(buffer)), fp) != nullptr;
++    std::fclose(fp);
++    if (!read)
++    {
++        return {};
++    }
++
++    auto const value = std::atoi(std::data(buffer));
++    return value > 0 ? static_cast<tr_torrent_id_t>(value) : tr_torrent_id_t{};
++}
++
+ tr_torrent_id_t tr_torrents::add(tr_torrent* tor)
+ {
+     auto const requested_id = pending_torrent_id;
+--- a/libtransmission/rpcimpl.cc
++++ b/libtransmission/rpcimpl.cc
+@@ -1676,6 +1676,11 @@
+         return;
+     }
+ 
++    if (requested_id > tr_torrent_id_t{})
++    {
++        tr_torrents_write_task_id(data->session->torrentDir(), tor->info_hash_string().sv(), tor->id());
++    }
++
+     data->session->rpcNotify(TR_RPC_TORRENT_ADDED, tor);
+     data->args_out.try_emplace(
+         TR_KEY_torrent_added,
+--- a/libtransmission/session.cc
++++ b/libtransmission/session.cc
+@@ -49,6 +49,7 @@
+ #include "libtransmission/session-alt-speeds.h"
+ #include "libtransmission/timer-ev.h"
+ #include "libtransmission/torrent.h"
++#include "libtransmission/torrents.h"
+ #include "libtransmission/torrent-ctor.h"
+ #include "libtransmission/tr-assert.h"
+ #include "libtransmission/tr-dht.h"
+@@ -1537,6 +1538,8 @@
+         if (tr_strv_ends_with(name, ".torrent"sv))
+         {
+             auto const path = tr_pathbuf{ folder, '/', name };
++            auto const stem = name.substr(0U, std::size(name) - std::size(".torrent"sv));
++            tr_torrents_set_pending_id(tr_torrents_read_task_id(folder, stem));
+             if (ctor->set_metainfo_from_file(path.sv()) && tr_torrentNew(ctor, nullptr) != nullptr)
+             {
+                 ++n_torrents;

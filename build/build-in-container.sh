@@ -8,10 +8,14 @@ export DEBIAN_FRONTEND=noninteractive
 mkdir -p /out
 
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends \
+if ! apt-get install -y -qq --no-install-recommends \
   build-essential cmake pkg-config ca-certificates curl xz-utils python3 \
   libcurl4-openssl-dev libssl-dev libevent-dev zlib1g-dev libdeflate-dev libpsl-dev \
-  >/dev/null
+  >/tmp/apt.log 2>&1; then
+  printf 'error: dependency install failed\n' >&2
+  tail -40 /tmp/apt.log >&2
+  exit 1
+fi
 
 cd /tmp
 curl -fsSL -o transmission.tar.xz \

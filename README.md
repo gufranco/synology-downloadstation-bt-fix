@@ -161,6 +161,16 @@ The condition is deliberately narrow. It requires a `task-id`, which no ordinary
 
 The same patch closes a leak in the first one. `tr_torrents::add()` consumes the pending `task-id`, but a duplicate never reaches `add()`, so the id stayed set and the next `torrent-add` arriving without a `task-id` would silently inherit it. The pending id is now cleared once the add attempt returns, whatever the outcome.
 
+That reply fix is necessary and not sufficient, and the gap it leaves is worth stating plainly because it is easy to test your way past.
+
+At startup the daemon loads its own `torrents` directory through `tr_torrentNew(ctor, nullptr)`, with no `task-id` in play, so every torrent is handed the next sequential id: 1, 2, 3, and so on. The ids DownloadStation assigned are gone. When the scheduler then asks to add task 566, the duplicate it collides with is holding id 1, `duplicate_of->id() == requested_id` is false, and the reply is `torrent-duplicate` again. The loop returns on the first restart.
+
+A test that adds and re-adds inside one daemon session never sees this, because the id is still whatever the add just set. [scripts/test-duplicate-add.sh](scripts/test-duplicate-add.sh) is that test, and it passes on a daemon that still loops in practice. [scripts/test-taskid-across-restart.sh](scripts/test-taskid-across-restart.sh) exists to cover the case it cannot: it adds, restarts the daemon, and then checks the id survived.
+
+[patches/0003-persist-task-id-across-daemon-restarts.patch](patches/0003-persist-task-id-across-daemon-restarts.patch) closes it. A successful add carrying a `task-id` writes `<info-hash>.taskid` next to the torrent, and the loader reads that back and sets the pending id before constructing the torrent, so the id is restored rather than reinvented. The sidecar sits in the directory the daemon already owns and manages, and the loader ignores any extension other than `.torrent` and `.magnet`, so the extra file is inert to everything else.
+
+The three patches divide cleanly: the first assigns the id DownloadStation asks for, the third keeps it across restarts, and the second makes the duplicate reply correct once the id is reliably right.
+
 ### Why the newer daemon still talks to DownloadStation
 
 Transmission 4.1 introduced a JSON-RPC 2.0 API, which raises the obvious question of whether an older client still works. It does. The release ships `libtransmission/api-compat.cc`, a compatibility layer mapping 212 legacy mixed-case RPC keys onto the current snake-case names. Older clients are a supported case upstream, not an accident, which is why DownloadStation needs no modification of its own.
