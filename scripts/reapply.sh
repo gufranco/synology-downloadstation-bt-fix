@@ -46,7 +46,13 @@ main() {
   log "patched daemon is not active; re-applying"
   reinstall_patched_binary
 
-  if wait_for_rpc_socket 40 && [ "$(probe_rpc 25 | cut -d' ' -f1)" = "RESPONSE" ]; then
+  if ! wait_for_rpc_socket 40; then
+    log "re-applied; transmissiond is not running, so RPC could not be exercised"
+    log "DownloadStation starts it only while a BT task exists"
+    exit 0
+  fi
+
+  if [ "$(probe_rpc 25 | cut -d' ' -f1)" = "RESPONSE" ]; then
     log "re-apply verified"
     exit 0
   fi
