@@ -1,12 +1,30 @@
 # synology-downloadstation-bt-fix
 
-Restores BitTorrent downloads in Synology DownloadStation by replacing the bundled `transmissiond` with a newer Transmission that answers RPC, runs with the right socket group, and honors the private `task-id` argument DownloadStation depends on.
+**Torrents in Synology Download Station stop working: every BitTorrent task fails with `Failed to add torrent`, sits at 0% forever, or refuses to seed.** HTTP, FTP, NZB and eMule downloads keep working the whole time, which is why the fault reads like a network or tracker problem instead of a broken daemon.
 
-HTTP and FTP downloads are unaffected by the bug and keep working either way. Only BitTorrent is broken, and it is broken completely: no torrent can ever be added.
+The cause is the `transmission-daemon` bundled inside DownloadStation. This project replaces it with a patched Transmission 4.1.1 that answers RPC over the Unix socket, creates that socket with the group the scheduler can open, honors the private `task-id` argument DownloadStation depends on, keeps that id across daemon restarts, and stops the add-fail loop that was truncating resume data and restarting multi-terabyte downloads.
 
-Three separate defects have to be fixed together. Each one alone still leaves BitTorrent dead, which is likely why this has gone unfixed for so long.
+Five defects, and they have to be fixed together. Three of them stop BitTorrent working at all, and each one alone still leaves it dead, which is likely why this has gone unfixed for so long. The other two decide whether the fix survives a restart: neither blocks the first torrent, so both stay invisible until the library grows, and then every task drops into an error the UI cannot explain while data already on disk starts downloading again.
 
-Two further defects decide whether the fix survives. Neither blocks the first torrent, so both stay invisible until the library grows. A duplicate add is reported as a failure, which puts DownloadStation into an endless restart loop, and the service unit's stop timeout is shorter than the time the daemon needs to save its state, which turns each of those restarts into a truncated resume file. Together they drop every task into an error the UI cannot explain and start re-downloading data that is already on disk.
+Verified on a DS923+ running DSM 7.3.2 with DownloadStation 4.1.2. The bug is in Synology's bundled daemon rather than in any one model, so other x86_64 and aarch64 units running the same package are very likely affected; [Does this affect my NAS?](#does-this-affect-my-nas) is a two-command check.
+
+## Does this affect my NAS?
+
+Run this on the NAS over SSH. If it prints 4.0.x, the bundled daemon is the one that cannot answer RPC:
+
+```sh
+/var/packages/DownloadStation/target/sbin/transmissiond --version
+```
+
+Then check whether it is actually the cause, rather than assuming:
+
+```sh
+sudo grep -c SendTransmissionRPC /volume1/@appdata/DownloadStation/log/downloadstation.log
+```
+
+Any non-zero count on a NAS where BitTorrent has stopped working points here. HTTP, FTP, NZB and eMule tasks are untouched by all of this and keep working throughout, which is the detail that makes the fault look like a network or tracker problem rather than a broken daemon.
+
+In everyday terms, people hit this and describe it as: Download Station will not download torrents; a torrent sits at 0% forever; a torrent is added and immediately turns red or vanishes; downloads finish but never seed; completed files are on disk yet the task says 0%; the task list shows "Error" with no explanation; deleting a stuck task freezes the web UI for two minutes; everything worked until a reboot or a package update.
 
 ## Symptoms
 
@@ -25,6 +43,15 @@ scheduler.cpp:1292 Failed to add torrent, task id: <id>
 ```
 
 Reinstalling DownloadStation does not help. Resetting settings does not help. The network, the trackers, and the firewall are not involved.
+
+Two other lines turn up in the same log and are not this bug:
+
+```
+move.cpp:19 Failed to opendir /volume1/@download/<id>/DOWNLOAD_TR_TMP_DIR
+move.cpp:75 Failed to get torrent download source file
+```
+
+Those were observed on tasks that were completing correctly and going on to seed. DownloadStation looks for a per-task temporary directory that does not exist when the data already sits in the destination folder, which is the normal case for a torrent recovered from files already on disk. Nothing needs fixing when only these appear.
 
 The 120 second timeout in the first line is what identifies this bug. A log that shows `Failed to add torrent` without it, on a system where `verify.sh` already reports the patch as ACTIVE, is a different problem with its own recovery: see [Recovering from an add-fail loop](#recovering-from-an-add-fail-loop).
 
