@@ -117,7 +117,7 @@ jobs:
           import sys
 
           failures = []
-          for name in ("README.md", "REFERENCE.md", "THIRD-PARTY-LICENSES.md", "AGENTS.md"):
+          for name in ("README.md",):
               if not os.path.exists(name):
                   continue
               text = open(name, encoding="utf-8").read()

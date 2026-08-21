@@ -1,12 +1,24 @@
 # synology-downloadstation-bt-fix
 
-**Torrents in Synology Download Station stop working: every BitTorrent task fails with `Failed to add torrent`, sits at 0% forever, or refuses to seed.** HTTP, FTP, NZB and eMule downloads keep working the whole time, which is why the fault reads like a network or tracker problem instead of a broken daemon.
+Download Station stopped adding torrents on my DS923+. Every task failed with
+`Failed to add torrent`, or sat at 0% forever, or finished and refused to seed.
+HTTP and FTP downloads kept working the whole time, which is why I wasted two
+days on my router and my trackers before looking at the daemon.
 
-The cause is the `transmission-daemon` bundled inside DownloadStation. This project replaces it with a patched Transmission 4.1.1 that answers RPC over the Unix socket, creates that socket with the group the scheduler can open, honors the private `task-id` argument DownloadStation depends on, keeps that id across daemon restarts, and stops the add-fail loop that was truncating resume data and restarting multi-terabyte downloads.
+It is the `transmission-daemon` bundled inside Download Station. This replaces
+it with a patched Transmission 4.1.1.
 
-Five defects, and they have to be fixed together. Three of them stop BitTorrent working at all, and each one alone still leaves it dead, which is likely why this has gone unfixed for so long. The other two decide whether the fix survives a restart: neither blocks the first torrent, so both stay invisible until the library grows, and then every task drops into an error the UI cannot explain while data already on disk starts downloading again.
+There turned out to be five separate bugs, not one, which I suspect is why
+nobody had fixed it. Three of them break BitTorrent outright, and fixing any
+one alone still leaves it dead, so you get no feedback that you are on the
+right track. The other two only show up once your library gets big: they do not
+stop the first torrent, they wait until you have terabytes and then quietly
+shred your resume data and start re-downloading files you already have.
 
-Verified on a DS923+ running DSM 7.3.2 with DownloadStation 4.1.2. The bug is in Synology's bundled daemon rather than in any one model, so other x86_64 and aarch64 units running the same package are very likely affected; [Does this affect my NAS?](#does-this-affect-my-nas) is a two-command check.
+I found this on a DS923+ with DSM 7.3.2 and Download Station 4.1.2. The bug is
+in Synology's daemon rather than in any particular model, so other units running
+the same package are almost certainly affected, but mine is the only one I have
+actually tested.
 
 ## Does this affect my NAS?
 
@@ -22,9 +34,9 @@ Then check whether it is actually the cause, rather than assuming:
 sudo grep -c SendTransmissionRPC /volume1/@appdata/DownloadStation/log/downloadstation.log
 ```
 
-Any non-zero count on a NAS where BitTorrent has stopped working points here. HTTP, FTP, NZB and eMule tasks are untouched by all of this and keep working throughout, which is the detail that makes the fault look like a network or tracker problem rather than a broken daemon.
+Any non-zero count on a NAS where BitTorrent has stopped working points here.
 
-In everyday terms, people hit this and describe it as: Download Station will not download torrents; a torrent sits at 0% forever; a torrent is added and immediately turns red or vanishes; downloads finish but never seed; completed files are on disk yet the task says 0%; the task list shows "Error" with no explanation; deleting a stuck task freezes the web UI for two minutes; everything worked until a reboot or a package update.
+If you searched your way here with something like "Download Station won't download torrents" or "torrent stuck at 0%" or "added torrent turns red and disappears", that is the same fault. It also shows up as completed files sitting on disk while the task insists it has 0%, and as the web UI freezing for two minutes when you try to delete a stuck task.
 
 ## Symptoms
 
@@ -208,29 +220,18 @@ The RPC client lives in `libsynodl-transmission-rpc.so` and `libsynodldomainsock
 
 ## Compatibility
 
-| Item | Value |
-|---|---|
-| Verified on | DS923+ (platform `r1000`), DSM 7.3.2-86009 Update 4, DownloadStation 4.1.2-5012 |
-| Bundled daemon | transmission-daemon 4.0.5 (82ea3bbe46) |
-| Replacement | transmission-daemon 4.1.1 plus the `task-id` patch |
-| Result | Ubuntu 24.04.4 ISO at 7.5 MB/s, 200 peers, correct size and progress in the UI |
-| Architectures | `x86_64`, `aarch64` |
-| DSM runtime | glibc 2.36, libstdc++ 6.0.31, libcurl.so.4, libssl.so.3, libevent-2.1.so.6 |
+My box is a DS923+ on DSM 7.3.2-86009 Update 4 with DownloadStation 4.1.2-5012. The daemon it shipped with is transmission-daemon 4.0.5 (82ea3bbe46); the replacement is 4.1.1 with my patches. As a sanity check I pulled an Ubuntu 24.04.4 ISO at 7.5 MB/s with 200 peers, correct size and progress showing in the UI.
+
+Builds are for `x86_64` and `aarch64`. DSM gives you glibc 2.36 and libstdc++ 6.0.31 to work against.
 
 The binary is built on Debian 12, which ships glibc 2.36 and GCC 12, matching DSM exactly. `libstdc++` and `libgcc` are linked statically so the C++ ABI cannot drift.
 
 Distribution sonames do not line up with DSM, so the build links Transmission's bundled copies of libevent, libdeflate, libpsl, libb64, dht, libutp, libnatpmp and miniupnpc rather than the system ones. Debian 12 ships `libevent-2.1.so.7` while DSM has `libevent-2.1.so.6`; a binary linked against the system libraries fails at startup with `error while loading shared libraries`. After bundling, the only shared objects the daemon needs are ones DSM already provides:
 
-| Library | Present on DSM |
-|---|---|
-| `libcurl.so.4` | yes |
-| `libssl.so.3` | yes |
-| `libcrypto.so.3` | yes |
-| `libm.so.6`, `libc.so.6`, `ld-linux-x86-64.so.2` | yes |
+After bundling, the only shared objects it needs are `libcurl.so.4`, `libssl.so.3`, `libcrypto.so.3`, `libm.so.6`, `libc.so.6` and `ld-linux-x86-64.so.2`, all of which DSM already ships.
 
 Note that `/tmp` is mounted `noexec` on DSM, so a binary staged there cannot be executed. The installer stages into the package directory instead and validates it there, which sidesteps the problem; keep it in mind if you test a binary by hand.
 
-[REFERENCE.md](REFERENCE.md) carries the full inventory: exact versions, every path touched, expected ownership and modes, SHA-256 checksums, and the DSM utilities the scripts depend on.
 
 Other models are likely affected by the same bug, but only the hardware listed above has been tested. Check your own daemon before assuming:
 
@@ -240,13 +241,32 @@ Other models are likely affected by the same bug, but only the hardware listed a
 
 ## Install
 
-Download the artifact for your architecture from the releases page, or build it yourself with [build/build.sh](build/build.sh).
+SSH into the NAS and grab the bootstrap script:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/gufranco/synology-downloadstation-bt-fix/main/scripts/bootstrap.sh
+less bootstrap.sh          # please actually read it
+sudo sh bootstrap.sh
+```
+
+It works out your architecture, pulls the matching binary from the latest release, checks the SHA-256 before touching anything, installs it, and registers the boot task so a DownloadStation update cannot silently undo the fix.
+
+You can pipe it straight into a shell if you would rather:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/gufranco/synology-downloadstation-bt-fix/main/scripts/bootstrap.sh | sudo sh
+```
+
+I put that second on purpose. This runs as root and swaps out a vendor binary, and with a pipe you are trusting me and GitHub with no chance to look first. There is a duller reason too: if the connection drops halfway, `sh` has already run everything it received, and a half-executed installer is a worse place to be than a failed download. Downloading first costs you one extra line.
+
+If you would rather not trust my binary at all, [build/build.sh](build/build.sh) builds it from the patches, and then it is the same two commands with your own artifact:
 
 ```sh
 sudo ./scripts/install.sh ./dist/transmissiond-4.1.1-dsfix-x86_64
+sudo ./scripts/install-boot-task.sh
 ```
 
-The installer writes the stop-timeout drop-in, stops DownloadStation, backs up the stock binary to `transmissiond.stock`, installs the replacement with the original owner and mode, restarts the package, and then proves the fix by sending a real RPC request over the domain socket. It refuses to install anything that is not an ELF binary identifying itself as `transmission-daemon`.
+Either way the installer stops DownloadStation, keeps the original binary as `transmissiond.stock`, puts the replacement in with the same owner and mode, restarts the package, and then proves it worked by sending a real RPC request over the domain socket. It will not install anything that is not an ELF binary calling itself `transmission-daemon`.
 
 ## Verify
 
@@ -379,19 +399,15 @@ The build runs in a `debian:12` container and emits a stripped binary plus a `.s
 
 Building on a host of a different architecture requires `binfmt_misc` emulation. Docker Desktop and Colima provide it by default.
 
-## Contributing
-
-[AGENTS.md](AGENTS.md) is the working guide: the DSM environment facts that break ordinary assumptions, how the three patches relate, how to regenerate one without hand-writing hunk headers, and the verification discipline this project learned the hard way.
-
-Every push runs [.github/workflows/ci.yml](.github/workflows/ci.yml), which lints the shell scripts, applies every patch to a pristine upstream tarball, builds the daemon on a native x86_64 runner, and fails if the result gained a shared-library dependency DSM does not provide. The patch-apply job is the one that catches upstream drift; the dependency check is the one that catches a build that would refuse to start on the NAS.
-
-Neither the CI nor any local check can exercise the DownloadStation integration, because that needs a Synology. The three scripts under [scripts/](scripts) are how that half is verified, and a change to the daemon's behaviour is not finished until they have been run on real hardware.
-
 ## Licence
 
-The scripts, patches and documentation here are MIT licensed; see [LICENSE](LICENSE).
+My scripts and patches are MIT, see [LICENSE](LICENSE). That does not cover Transmission.
 
-The distributed `transmission-daemon` binary is a modified Transmission and remains under the GPL. The corresponding source, the patch, and the exact build recipe are all published in this repository, as the GPL requires. Details and the full component inventory are in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
+The `transmission-daemon` binary in the releases is a modified Transmission, so it stays under the GPL (v2 or v3, your choice) and the GPL says the source has to come with it. It does: the unmodified upstream tarball is fetched at build time by [build/build-in-container.sh](build/build-in-container.sh), my changes are the three files in [patches/](patches), and [build/build.sh](build/build.sh) is the exact recipe. Apply the patches to that tarball, run the recipe, and you get the same binary. Nothing depends on a private tree of mine.
+
+The binary statically links Transmission's own bundled libraries so it only needs shared objects DSM already has. Those keep their own licences as shipped upstream: libevent, libnatpmp and miniupnpc are 3-clause BSD; libdeflate, libpsl, dht, libutp, fmt, rapidjson and small are MIT; libb64 is public domain; utfcpp and wide-integer are BSL-1.0; fast_float is Apache-2.0 or MIT or BSL-1.0. `libstdc++` and `libgcc` are static under the GCC Runtime Library Exception, which is what keeps my own code out of GPL scope.
+
+Synology, DiskStation and DownloadStation are Synology trademarks. This is not affiliated with or endorsed by Synology or the Transmission project.
 
 ## Disclaimer
 

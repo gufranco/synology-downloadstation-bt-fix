@@ -6,3 +6,7 @@ dist/
 !patches/
 !patches/**
 !*.patch
+
+REFERENCE.md
+CONTRIBUTING.md
+THIRD-PARTY-LICENSES.md
