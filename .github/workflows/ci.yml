@@ -14,7 +14,7 @@ jobs:
     name: Shell lint and format
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: shellcheck
         run: |
@@ -33,7 +33,7 @@ jobs:
     name: Patches apply to upstream
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Fetch the upstream tarball
         run: |
@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [shell, patches]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build through the published recipe
         run: TARGET_ARCH=x86_64 BUILD_JOBS=4 ./build/build.sh
@@ -97,7 +97,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: transmissiond-x86_64
           path: dist/transmissiond-*-x86_64*
@@ -107,7 +107,7 @@ jobs:
     name: Documentation links resolve
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Every relative link and anchor must exist
         run: |
