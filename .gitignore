@@ -1,12 +1,13 @@
 dist/
 *.tar.xz
 
+# A developer's global excludes file commonly ignores build/ and *.patch, which
+# in this repository are the product rather than build output. A repository
+# .gitignore outranks core.excludesFile, so these re-include them. Without them
+# a new patch or build script is silently untracked on such a machine, and
+# git status looks clean because already-tracked files are unaffected.
 !build/
 !build/**
 !patches/
 !patches/**
 !*.patch
-
-REFERENCE.md
-CONTRIBUTING.md
-THIRD-PARTY-LICENSES.md
