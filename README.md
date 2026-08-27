@@ -226,18 +226,11 @@ Builds are for `x86_64` and `aarch64`. DSM gives you glibc 2.36 and libstdc++ 6.
 
 The binary is built on Debian 12, which ships glibc 2.36 and GCC 12, matching DSM exactly. `libstdc++` and `libgcc` are linked statically so the C++ ABI cannot drift.
 
-Distribution sonames do not line up with DSM, so the build links Transmission's bundled copies of libevent, libdeflate, libpsl, libb64, dht, libutp, libnatpmp and miniupnpc rather than the system ones. Debian 12 ships `libevent-2.1.so.7` while DSM has `libevent-2.1.so.6`; a binary linked against the system libraries fails at startup with `error while loading shared libraries`. After bundling, the only shared objects the daemon needs are ones DSM already provides:
+Distribution sonames do not line up with DSM, so the build links Transmission's bundled copies of libevent, libdeflate, libpsl, libb64, dht, libutp, libnatpmp and miniupnpc rather than the system ones. Debian 12 ships `libevent-2.1.so.7` while DSM has `libevent-2.1.so.6`; a binary linked against the system libraries fails at startup with `error while loading shared libraries`.
 
 After bundling, the only shared objects it needs are `libcurl.so.4`, `libssl.so.3`, `libcrypto.so.3`, `libm.so.6`, `libc.so.6` and `ld-linux-x86-64.so.2`, all of which DSM already ships.
 
-Note that `/tmp` is mounted `noexec` on DSM, so a binary staged there cannot be executed. The installer stages into the package directory instead and validates it there, which sidesteps the problem; keep it in mind if you test a binary by hand.
-
-
-Other models are likely affected by the same bug, but only the hardware listed above has been tested. Check your own daemon before assuming:
-
-```sh
-/var/packages/DownloadStation/target/sbin/transmissiond --version
-```
+`/tmp` is mounted `noexec` on DSM, so a binary staged there cannot be executed. The installer stages into the package directory instead and validates it there, which sidesteps the problem; keep it in mind if you test a binary by hand.
 
 ## Install
 
