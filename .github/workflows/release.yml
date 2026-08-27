@@ -1,0 +1,162 @@
+name: Release
+
+# Releases are gated on a green CI run rather than on the push itself, so a red
+# main can never be tagged. workflow_run is scoped to main and checks out main
+# by name rather than any event-supplied ref, and the guard job refuses to run
+# when main has already moved past the commit CI verified.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Confirm main is the commit CI verified
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: >-
+      github.repository == 'gufranco/synology-downloadstation-bt-fix' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    outputs:
+      proceed: ${{ steps.verify.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      # A commit can land while CI is still running for the previous one.
+      # Releasing main's tip would then ship a binary no CI run ever verified.
+      # Skipping is safe: the newer commit runs its own CI and its own release.
+      - name: Verify
+        id: verify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "workflow_run" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          head_sha="$(git rev-parse HEAD)"
+          if [ "$head_sha" != "$VERIFIED_SHA" ]; then
+            echo "main advanced past the verified commit; its own release run will handle it."
+            echo "  verified: $VERIFIED_SHA"
+            echo "  current:  $head_sha"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "main is at the verified commit $head_sha"
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: guard
+    if: needs.guard.outputs.proceed == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Build through the published recipe
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+          BUILD_JOBS: "4"
+        run: ./build/build.sh
+
+      - name: The daemon must identify itself
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          artifact=$(find dist -name "transmissiond-*-${ARCH}" -type f | head -1)
+          [ -n "$artifact" ] || { echo "::error::no artifact built for ${ARCH}"; exit 1; }
+          echo "artifact: ${artifact}"
+          "$artifact" --version 2>&1 | tee /tmp/version.txt
+          grep -q 'transmission-daemon' /tmp/version.txt
+
+      - name: Link only against libraries DSM ships
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          artifact=$(find dist -name "transmissiond-*-${ARCH}" -type f | head -1)
+          ./build/check-linkage.sh "$artifact" "$ARCH"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: transmissiond-${{ matrix.arch }}
+          path: dist/transmissiond-*-${{ matrix.arch }}*
+          if-no-files-found: error
+
+  release:
+    name: semantic-release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: transmissiond-*
+          merge-multiple: true
+
+      - name: The assets about to be published
+        run: ls -la dist
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install the release toolchain
+        run: npm ci --ignore-scripts
+
+      - name: Audit the release toolchain
+        run: npm audit --audit-level=high
+
+      # Token-free and fast, so a dependency bump that breaks note rendering
+      # fails here with a clear message instead of publishing an empty release.
+      - name: Release notes render
+        run: node tools/verify-release-notes.test.mjs
+
+      - name: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: npx semantic-release

@@ -1,0 +1,64 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+      include: scope
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      # One pull request for the routine bumps. A major bump leaves the group so
+      # it gets reviewed alone, because that is where a changed workflow input
+      # shows up.
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      include: scope
+    labels:
+      - dependencies
+      - javascript
+    ignore:
+      # The conventionalcommits preset v10 renders through
+      # conventional-changelog-writer v9, and
+      # @semantic-release/release-notes-generator 14.1.1 still pins ^8.0.0. The
+      # two cannot both be satisfied, so the bump breaks note generation.
+      # tools/verify-release-notes.test.mjs catches it before a tag is cut.
+      # Lift this once release-notes-generator accepts writer v9.
+      - dependency-name: conventional-changelog-conventionalcommits
+        update-types:
+          - version-update:semver-major
+    groups:
+      # These move as a set. Bumping semantic-release without its plugins, or a
+      # plugin without the core, is the usual way the preset and the writer end
+      # up on incompatible majors.
+      release-tooling:
+        patterns:
+          - "semantic-release"
+          - "@semantic-release/*"
+          - "conventional-changelog-conventionalcommits"
+        update-types:
+          - minor
+          - patch
