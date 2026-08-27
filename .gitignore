@@ -1,4 +1,5 @@
 dist/
+node_modules/
 *.tar.xz
 
 # A developer's global excludes file commonly ignores build/ and *.patch, which

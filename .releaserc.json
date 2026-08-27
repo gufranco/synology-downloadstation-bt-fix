@@ -1,0 +1,77 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "breaking": true, "release": "major" },
+          { "revert": true, "release": "patch" },
+          { "type": "feat", "release": "minor" },
+          { "type": "fix", "release": "patch" },
+          { "type": "perf", "release": "patch" },
+          { "type": "refactor", "release": "patch" },
+          { "type": "docs", "release": false },
+          { "type": "style", "release": false },
+          { "type": "test", "release": false },
+          { "type": "build", "release": false },
+          { "type": "ci", "release": false },
+          { "type": "chore", "release": false }
+        ],
+        "parserOpts": {
+          "noteKeywords": ["BREAKING CHANGE", "BREAKING CHANGES"]
+        }
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            { "type": "feat", "section": "Added" },
+            { "type": "fix", "section": "Fixed" },
+            { "type": "perf", "section": "Performance" },
+            { "type": "refactor", "section": "Changed" },
+            { "type": "revert", "section": "Reverted" },
+            { "type": "docs", "section": "Documentation", "hidden": false },
+            { "type": "build", "section": "Build and dependencies", "hidden": false },
+            { "type": "ci", "section": "Continuous integration", "hidden": true },
+            { "type": "test", "section": "Tests", "hidden": true },
+            { "type": "style", "section": "Formatting", "hidden": true },
+            { "type": "chore", "section": "Housekeeping", "hidden": true }
+          ]
+        }
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          {
+            "path": "dist/transmissiond-*-x86_64",
+            "label": "transmissiond x86_64"
+          },
+          {
+            "path": "dist/transmissiond-*-x86_64.sha256",
+            "label": "transmissiond x86_64 SHA-256"
+          },
+          {
+            "path": "dist/transmissiond-*-aarch64",
+            "label": "transmissiond aarch64"
+          },
+          {
+            "path": "dist/transmissiond-*-aarch64.sha256",
+            "label": "transmissiond aarch64 SHA-256"
+          }
+        ],
+        "successComment": false,
+        "failComment": false,
+        "failTitle": false,
+        "releasedLabels": false
+      }
+    ]
+  ]
+}
