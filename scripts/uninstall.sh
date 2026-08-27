@@ -7,12 +7,9 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 restore_stock_binary() {
   [ -f "$STOCK_BACKUP" ] || die "no stock backup found at ${STOCK_BACKUP}; nothing to restore"
 
-  owner="$DAEMON_OWNER"
-  mode="$STOCK_MODE"
-
   cp -f "$STOCK_BACKUP" "${TARGET_BIN}.restore"
-  chown "$owner" "${TARGET_BIN}.restore" 2>/dev/null || true
-  chmod "$mode" "${TARGET_BIN}.restore"
+  chown "$DAEMON_OWNER" "${TARGET_BIN}.restore" 2>/dev/null || true
+  chmod "$STOCK_MODE" "${TARGET_BIN}.restore"
   mv -f "${TARGET_BIN}.restore" "$TARGET_BIN"
   log "restored stock binary: $(daemon_version_of "$TARGET_BIN")"
 }

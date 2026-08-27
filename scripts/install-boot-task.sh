@@ -5,7 +5,6 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "${SCRIPT_DIR}/common.sh"
 
 SCHEDULER_DB_BACKUP="${SCHEDULER_DB}.bak-dsfix"
-TASK_NAME="$BOOT_TASK_NAME"
 TASK_DESCRIPTION="Re-applies the patched transmissiond after a DownloadStation update"
 BOOT_SCRIPT="${INSTALLED_SCRIPTS_DIR}/reapply.sh"
 
@@ -24,15 +23,11 @@ install_scripts() {
   log "scripts installed to ${INSTALLED_SCRIPTS_DIR}"
 }
 
-task_exists() {
-  boot_task_is_registered
-}
-
 register_task() {
   cp -f "$SCHEDULER_DB" "$SCHEDULER_DB_BACKUP"
   log "scheduler database backed up to ${SCHEDULER_DB_BACKUP}"
 
-  sqlite3 "$SCHEDULER_DB" "INSERT INTO task (task_name, description, event, depend_on_task, enable, owner, run_the_same_time, notify_enable, notify_mail, notify_if_error, operation, operation_type) VALUES ('${TASK_NAME}', '${TASK_DESCRIPTION}', 'bootup', '', 1, 0, 1, 0, '', 0, '${BOOT_SCRIPT}', 'script');"
+  sqlite3 "$SCHEDULER_DB" "INSERT INTO task (task_name, description, event, depend_on_task, enable, owner, run_the_same_time, notify_enable, notify_mail, notify_if_error, operation, operation_type) VALUES ('${BOOT_TASK_NAME}', '${TASK_DESCRIPTION}', 'bootup', '', 1, 0, 1, 0, '', 0, '${BOOT_SCRIPT}', 'script');"
 
   synoschedtask --sync >/dev/null 2>&1 || true
   log "boot task registered"
@@ -45,16 +40,16 @@ main() {
 
   install_scripts
 
-  if task_exists; then
+  if boot_task_is_registered; then
     log "boot task already registered; nothing to do"
     exit 0
   fi
 
   register_task
 
-  if task_exists; then
+  if boot_task_is_registered; then
     log "done; the fix will be re-applied automatically after every reboot"
-    log "it appears in Control Panel > Task Scheduler as: ${TASK_NAME}"
+    log "it appears in Control Panel > Task Scheduler as: ${BOOT_TASK_NAME}"
     exit 0
   fi
 

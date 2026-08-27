@@ -14,9 +14,6 @@ patch_is_active() {
 reinstall_patched_binary() {
   [ -f "$PATCHED_COPY" ] || die "no stored patched binary at ${PATCHED_COPY}; re-run install.sh"
 
-  owner="$DAEMON_OWNER"
-  mode="$DAEMON_MODE"
-
   stop_downloadstation
 
   if [ ! -f "$STOCK_BACKUP" ] || [ "$(checksum_of "$TARGET_BIN")" != "$(checksum_of "$PATCHED_COPY")" ]; then
@@ -24,8 +21,8 @@ reinstall_patched_binary() {
   fi
 
   cp -f "$PATCHED_COPY" "${TARGET_BIN}.new"
-  chown "$owner" "${TARGET_BIN}.new" 2>/dev/null || true
-  chmod "$mode" "${TARGET_BIN}.new"
+  chown "$DAEMON_OWNER" "${TARGET_BIN}.new" 2>/dev/null || true
+  chmod "$DAEMON_MODE" "${TARGET_BIN}.new"
   mv -f "${TARGET_BIN}.new" "$TARGET_BIN"
 
   start_downloadstation
