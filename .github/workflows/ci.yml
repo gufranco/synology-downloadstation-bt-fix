@@ -80,22 +80,9 @@ jobs:
 
       - name: Link only against libraries DSM ships
         run: |
+          set -euo pipefail
           artifact=$(find dist -name 'transmissiond-*-x86_64' -type f | head -1)
-          readelf -d "$artifact" | awk '/NEEDED/ {gsub(/[\[\]]/,"",$5); print $5}' | sort > /tmp/needed.txt
-          cat /tmp/needed.txt
-          cat > /tmp/allowed.txt <<'ALLOWED'
-          ld-linux-x86-64.so.2
-          libc.so.6
-          libcrypto.so.3
-          libcurl.so.4
-          libm.so.6
-          libssl.so.3
-          ALLOWED
-          sort -o /tmp/allowed.txt /tmp/allowed.txt
-          if ! diff -u /tmp/allowed.txt /tmp/needed.txt; then
-            echo "::error::the daemon gained a dependency DSM does not provide"
-            exit 1
-          fi
+          ./build/check-linkage.sh "$artifact" x86_64
 
       - uses: actions/upload-artifact@v7
         with:
