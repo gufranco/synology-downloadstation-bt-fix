@@ -5,6 +5,10 @@ Download Station stopped adding torrents on my DS923+. Every task failed with
 HTTP and FTP downloads kept working the whole time, which is why I wasted two
 days on my router and my trackers before looking at the daemon.
 
+[![ci](https://img.shields.io/github/actions/workflow/status/gufranco/synology-downloadstation-bt-fix/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/gufranco/synology-downloadstation-bt-fix/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/gufranco/synology-downloadstation-bt-fix?style=flat-square&label=release)](https://github.com/gufranco/synology-downloadstation-bt-fix/releases/latest)
+[![license](https://img.shields.io/github/license/gufranco/synology-downloadstation-bt-fix?style=flat-square&label=license)](LICENSE)
+
 It is the `transmission-daemon` bundled inside Download Station. This replaces
 it with a patched Transmission 4.1.1.
 
