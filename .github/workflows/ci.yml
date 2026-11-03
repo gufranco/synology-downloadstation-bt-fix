@@ -12,7 +12,7 @@ permissions:
 jobs:
   shell:
     name: Shell lint and format
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -31,7 +31,7 @@ jobs:
 
   patches:
     name: Patches apply to upstream
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -63,7 +63,7 @@ jobs:
 
   build:
     name: Build and inspect the daemon
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: [shell, patches]
     steps:
       - uses: actions/checkout@v7
@@ -92,7 +92,7 @@ jobs:
 
   docs:
     name: Documentation links resolve
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
