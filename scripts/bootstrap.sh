@@ -6,6 +6,7 @@ RELEASE="${DSFIX_RELEASE:-latest}"
 WORKDIR=""
 
 log() { printf '%s\n' "$*"; }
+progress() { printf '%s\n' "$*" >&2; }
 warn() { printf '%s\n' "$*" >&2; }
 die() {
   printf 'error: %s\n' "$*" >&2
@@ -61,7 +62,7 @@ fetch_and_verify() {
   base="https://github.com/${REPO}/releases/download/${tag}"
   name="transmissiond-4.1.1-dsfix-${arch}"
 
-  log "downloading ${name} (${tag})"
+  progress "downloading ${name} (${tag})"
   curl -fsSL --retry 3 -o "${WORKDIR}/${name}" "${base}/${name}" ||
     die "download failed; check that ${tag} has an asset for ${arch}"
   curl -fsSL --retry 3 -o "${WORKDIR}/${name}.sha256" "${base}/${name}.sha256" ||
@@ -75,13 +76,13 @@ fetch_and_verify() {
     warn "actual   ${actual}"
     die "checksum mismatch, refusing to install"
   fi
-  log "sha256 verified: ${actual}"
+  progress "sha256 verified: ${actual}"
   printf '%s\n' "${WORKDIR}/${name}"
 }
 
 fetch_scripts() {
   tag="$1"
-  log "fetching the installer scripts for ${tag}"
+  progress "fetching the installer scripts for ${tag}"
   curl -fsSL --retry 3 -o "${WORKDIR}/src.tar.gz" \
     "https://github.com/${REPO}/archive/refs/tags/${tag}.tar.gz" ||
     die "could not fetch the source tarball"
