@@ -19,7 +19,7 @@ jobs:
       - name: shellcheck
         run: |
           shellcheck --version
-          shellcheck --severity=warning scripts/*.sh build/*.sh
+          shellcheck --severity=warning scripts/*.sh build/*.sh tests/*.sh
 
       - name: shfmt
         run: |
@@ -27,7 +27,10 @@ jobs:
             https://github.com/mvdan/sh/releases/download/v3.13.1/shfmt_v3.13.1_linux_amd64
           chmod 755 /tmp/shfmt
           /tmp/shfmt --version
-          /tmp/shfmt -d -i 2 -ci scripts/*.sh build/*.sh
+          /tmp/shfmt -d -i 2 -ci scripts/*.sh build/*.sh tests/*.sh
+
+      - name: Bootstrap hands back paths, not progress
+        run: sh tests/bootstrap.test.sh
 
   patches:
     name: Patches apply to upstream
